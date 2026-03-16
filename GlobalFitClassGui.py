@@ -466,7 +466,7 @@ class GlobalFitPanel(QDialog):
         ax2.set_title(f"First {n_mostrar} Spectral Components")
         ax2.set_xlabel("Energy / Wavelength")
         ax2.axhline(0, color='black', lw=1, alpha=0.5)
-        ax2.legend()
+        ax2.legend(frameon=True)
         
         self.canvas_svd.draw()        
   
@@ -1406,6 +1406,8 @@ class GlobalFitPanel(QDialog):
     
             # --- 1. PLOT DAS (Exponenciales) ---
             colors = ['b', 'r', 'g', 'orange', 'm', 'c']
+            # Añadimos una lista de marcadores para distinguir mejor las especies (círculo, cuadrado, triángulo...)
+            markers = ['o', 's', '^', 'D', 'v', 'p'] 
             
             for n in range(self.numExp):
                 tau_val = self.extracted_taus[n]
@@ -1416,17 +1418,23 @@ class GlobalFitPanel(QDialog):
                 else:
                      err_tau = 0.0
     
-                lbl = f"τ{n+1} = {tau_val:.2f} ± {err_tau:.2f} ps"
+                lbl = f"$\\tau_{n+1}$ = {tau_val:.2f} ± {err_tau:.2f} ps"
                 color = colors[n % len(colors)]
+                marker = markers[n % len(markers)] # Asignar marcador
     
-                # Línea principal
-                ax_das.plot(wl, self.As[n], label=lbl, color=color, linewidth=2)
-                
-                # Sombra de error (Si existe)
+                # --- NUEVO CÓDIGO: Usar errorbar en lugar de fill_between ---
                 if self.errAs is not None:
-                    lower = np.nan_to_num(self.As[n] - self.errAs[n])
-                    upper = np.nan_to_num(self.As[n] + self.errAs[n])
-                    ax_das.fill_between(wl, lower, upper, color=color, alpha=0.2)
+                    # Limpiamos los posibles NaNs en el error para que matplotlib no se queje
+                    err_y = np.nan_to_num(self.errAs[n])
+                    
+                    # Dibujamos línea (-), marcador, y barras de error con topes (capsize)
+                    ax_das.errorbar(wl, self.As[n], yerr=err_y, label=lbl, 
+                                    color=color, fmt=f'-{marker}', markersize=5, 
+                                    capsize=4, capthick=1.5, linewidth=1.5, elinewidth=1.5)
+                else:
+                    # Si por algún motivo no hay errores calculados, ploteamos solo la línea y los puntos
+                    ax_das.plot(wl, self.As[n], f'-{marker}', label=lbl, color=color, 
+                                markersize=5, linewidth=1.5)
             
             ax_das.set_xlabel("Wavelength (nm)")
             if self.model_type == "Sequential":
@@ -1436,7 +1444,7 @@ class GlobalFitPanel(QDialog):
                 ax_das.set_ylabel("DAS Amplitude (ΔA)")
                 ax_das.set_title("Decay Associated Spectra (DAS)")
             
-            ax_das.legend()
+            ax_das.legend(frameon=True)
             ax_das.axhline(0, color='k', linestyle='--', alpha=0.5)
             ax_das.grid(True, linestyle=':', alpha=0.4)
     
@@ -1464,7 +1472,7 @@ class GlobalFitPanel(QDialog):
                 ax_osc.set_title(title_osc, color='darkblue') # Color para resaltar
                 ax_osc.axhline(0, color='k', linestyle='--', alpha=0.5)
                 ax_osc.grid(True, linestyle=':', alpha=0.4)
-                ax_osc.legend()
+                ax_osc.legend(frameon=True)
     
             fig_das.tight_layout()
     
@@ -1504,25 +1512,50 @@ class GlobalFitPanel(QDialog):
                     real_wl = wl[idx]
     
                     y_exp = self.data_c[idx, :]
-                    y_fit = self.fit_fitres[idx, :]
+                    
+                    # 1. Crear un eje de tiempo híbrido para suavizar la curva
+                    # Lineal en la región temprana (-10 a 1 ps, para no perder la subida)
+                    td_lin = np.linspace(td.min(), 1.0, 1000)
+                    
+                    # Logarítmico en la región tardía (1 ps hasta el final)
+                    # np.geomspace genera puntos cada vez más separados
+                    td_log = np.geomspace(1.0, td.max(), 1000)
+                    
+                    # Unimos ambas partes (np.unique quita el 1.0 repetido)
+                    td_smooth = np.unique(np.concatenate((td_lin, td_log)))
+                    
+                    # 2. Re-evaluar el modelo con el tiempo suave
+                    if self.model_type == "Sequential":
+                        F_mat_smooth = fit.eval_sequential_model(self.fit_x, td_smooth, self.numExp, len(wl), self.t0_choice)
+                    elif self.model_type == 'Damped Oscillation':
+                        F_mat_smooth = fit.eval_oscillation_model(self.fit_x, td_smooth, self.numExp, len(wl), self.t0_choice)
+                    else:
+                        F_mat_smooth = fit.eval_global_model(self.fit_x, td_smooth, self.numExp, len(wl), self.t0_choice)
+                        
+                    # 3. Extraer la traza suave y la original
+                    y_fit_smooth = F_mat_smooth.T[idx, :] 
+                    y_fit = self.fit_fitres[idx, :] # Mantenemos esta para exportar los datos originales si es necesario
+                    
+                    
     
-                    # Crear figura Trace
+                
                     fig_trace, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
                     fig_trace.suptitle(f"Fit at {real_wl:.1f} nm", fontsize=14)
     
-                    # Linear
+                    # Linear (USAR VARIABLES SUAVES AQUÍ)
                     ax1.plot(td, y_exp, 'bo', markersize=4, alpha=0.6, label='Data')
-                    ax1.plot(td, y_fit, 'r-', linewidth=2, label='Fit')
+                    ax1.plot(td_smooth, y_fit_smooth, 'r-', linewidth=2, label='Fit')
                     ax1.set_xlabel("Time / ps")
                     ax1.set_ylabel("ΔA")
-                    ax1.legend()
+                    ax1.legend(frameon=True)
                     ax1.grid(True, alpha=0.3)
     
-                    # Log
-                    mask_pos = td > 0
-                    if np.any(mask_pos):
-                        ax2.plot(td[mask_pos], y_exp[mask_pos], 'bo', markersize=4, alpha=0.6)
-                        ax2.plot(td[mask_pos], y_fit[mask_pos], 'r-', linewidth=2)
+                    # Log (USAR VARIABLES SUAVES AQUÍ)
+                    mask_pos_exp = td > 0
+                    mask_pos_smooth = td_smooth > 0
+                    if np.any(mask_pos_exp):
+                        ax2.plot(td[mask_pos_exp], y_exp[mask_pos_exp], 'bo', markersize=4, alpha=0.6)
+                        ax2.plot(td_smooth[mask_pos_smooth], y_fit_smooth[mask_pos_smooth], 'r-', linewidth=2)
                         ax2.set_xscale('log')
                         ax2.set_xlabel("Time / ps (log scale)")
                         ax2.grid(True, which="both", ls="-", alpha=0.3)
@@ -1542,12 +1575,25 @@ class GlobalFitPanel(QDialog):
                         txt_name = f"Fit_{real_wl:.1f}nm.txt"
                         txt_path = os.path.join(outdir, txt_name)
                         
-                        data_stack = np.column_stack((td, y_exp, y_fit))
-                        header_txt = "TD(ps)\tExp(A)\tFit(A)"
+                        # --- NUEVO CÓDIGO: Escribir dejando los huecos totalmente vacíos ---
+                        max_len = max(len(td), len(td_smooth))
                         
-                        np.savetxt(txt_path, data_stack, fmt='%1.6e', delimiter='\t',
-                                   header=header_txt, comments='# ')
-    
+                        with open(txt_path, 'w') as f:
+                            # Cabecera para las 4 columnas
+                            f.write("TD_exp(ps)\tExp(A)\tTD_fit(ps)\tFit_smooth(A)\n")
+                            
+                            # Escribir línea por línea
+                            for i in range(max_len):
+                                # Si todavía hay datos experimentales, los ponemos. Si no, dejamos un texto vacío ("")
+                                val_td = f"{td[i]:.6e}" if i < len(td) else ""
+                                val_exp = f"{y_exp[i]:.6e}" if i < len(y_exp) else ""
+                                
+                                # Si todavía hay datos del ajuste, los ponemos
+                                val_td_s = f"{td_smooth[i]:.6e}" if i < len(td_smooth) else ""
+                                val_fit_s = f"{y_fit_smooth[i]:.6e}" if i < len(y_fit_smooth) else ""
+                                
+                                # Unimos los 4 valores separados por una tabulación
+                                f.write(f"{val_td}\t{val_exp}\t{val_td_s}\t{val_fit_s}\n")
                     plt.close(fig_trace)
     
                 except Exception as e:

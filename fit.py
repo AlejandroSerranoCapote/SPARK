@@ -38,7 +38,6 @@ def binning(data_c, WL, bin_size):
         WLAVG[i] = np.mean(WL[i*bin_size:(i+1)*bin_size])
     return datacAVG, WLAVG
 
-
 def convolved_exp_vectorized(t, t0, taus, w):
     """
     Versión HÍBRIDA: Vectorizada pero usando 'erf' (más rápida que erfc).
@@ -72,7 +71,36 @@ def convolved_exp_vectorized(t, t0, taus, w):
     # Fórmula: 0.5 * exp(arg1) * (1 - erf(arg2))
     return 0.5 * np.exp(arg1) * (1 - _special.erf(arg2))
 
+# from scipy.special import erfcx
 
+# def convolved_exp_vectorized(t, t0, taus, w):
+#     """
+#     Versión Robusta: Utiliza erfcx para evitar saltos numéricos y 
+#     manejar correctamente la subida (rise time).
+#     """
+#     # Asegurar dimensiones para broadcasting
+#     if t.ndim == 1:
+#         t = t[:, np.newaxis]
+    
+#     taus = np.asarray(taus)
+#     if taus.ndim == 1:
+#         taus = taus[np.newaxis, :]
+    
+#     # Parámetros de seguridad
+#     tau_safe = np.maximum(taus, 1e-15)
+#     w_safe = np.maximum(w, 1e-15)
+#     t_diff = t - t0
+    
+#     # Reescribimos el argumento para usar erfcx(x)
+#     # La forma analítica estable es:
+#     # 0.5 * exp((w/(sqrt(2)*tau))^2 - (t-t0)/tau) * erfc( (w^2 - tau*(t-t0))/(sqrt(2)*w*tau) )
+    
+#     # Definimos x para erfcx(x)
+#     # x = [w / (sqrt(2)*tau)] - [(t-t0) / (sqrt(2)*w)]
+#     x = (w_safe / (np.sqrt(2) * tau_safe)) - (t_diff / (np.sqrt(2) * w_safe))
+    
+#     # La expresión completa se reduce a:
+#     return 0.5 * erfcx(x) * np.exp(-(t_diff**2) / (2 * w_safe**2))
 
 # =============================================================================
 # MODEL EVALUATION FUNCTIONS
