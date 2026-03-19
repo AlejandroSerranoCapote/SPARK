@@ -748,11 +748,12 @@ class FLUPSAnalyzer(QMainWindow):
                     return
                 data, wl, td = load_data(data_path=file_path, wl_path=wl_path, td_path=td_path)
     
-            # Ordenar WL ascendente
-            if not np.all(np.diff(wl) > 0):
-                order = np.argsort(wl)
-                wl = wl[order]
-                data = data[order, :]
+            # ---  ELIMINAR DUPLICADOS Y ORDENAR (FLUPS) ---
+            wl, idx_wl = np.unique(wl, return_index=True)
+            td, idx_td = np.unique(td, return_index=True)
+            
+            # Recortar la matriz de datos para que coincida con los índices limpios
+            data = data[idx_wl, :][:, idx_td]
     
             # --- Normalización ---
             
@@ -1324,7 +1325,7 @@ class TASAnalyzer(FLUPSAnalyzer):
         
         # Conectamos al nuevo método
         self.btn_switch.clicked.connect(self.switch_analyzer)
-    # === Checkbox para conversión automática de .dat → .csv ===
+        # === Checkbox para conversión automática de .dat → .csv ===
         self.chk_convert_dat = QCheckBox("Convert .dat → .csv (IMDEA DATA)")
         self.chk_convert_dat.setChecked(True)  # activado por defecto
 
@@ -1449,10 +1450,17 @@ class TASAnalyzer(FLUPSAnalyzer):
         raw = pd.read_csv(file_path_medida, header=None)
         raw = raw.apply(pd.to_numeric, errors="coerce").dropna(how="any")
         raw = raw.values.astype(float)
-        self.TD = raw[0, 1:]       # delay (ps)
-        self.WL = raw[1:, 0]        # wavelength (nm)
-        self.medida = raw[1:, 1:]   # ΔA(λ, t)
-        self.medida[np.isnan(self.medida)] = 0
+        
+        temp_TD = raw[0, 1:]       # delay (ps) temporal
+        temp_WL = raw[1:, 0]       # wavelength (nm) temporal
+        temp_medida = raw[1:, 1:]  # ΔA(λ, t) temporal
+        temp_medida[np.isnan(temp_medida)] = 0
+        
+        # --- ELIMINAR DUPLICADOS Y ORDENAR (MEDIDA) ---
+        self.WL, idx_wl = np.unique(temp_WL, return_index=True)
+        self.TD, idx_td = np.unique(temp_TD, return_index=True)
+        # Recortar la matriz de datos para que coincida con los índices limpios
+        self.medida = temp_medida[idx_wl, :][:, idx_td]
         
         # --- Seleccionar archivo de solvente ---
         file_path_solvente, _ = QFileDialog.getOpenFileName(
@@ -1471,10 +1479,16 @@ class TASAnalyzer(FLUPSAnalyzer):
         rawSol = pd.read_csv(file_path_solvente, header=None)
         rawSol = rawSol.apply(pd.to_numeric, errors="coerce").dropna(how="any")
         rawSol = rawSol.values.astype(float)
-        self.TDSol = rawSol[0, 1:]
-        self.WLSol = rawSol[1:, 0]
-        self.solvente = rawSol[1:, 1:]
-        self.solvente[np.isnan(self.solvente)] = 0
+        
+        temp_TDSol = rawSol[0, 1:]
+        temp_WLSol = rawSol[1:, 0]
+        temp_solvente = rawSol[1:, 1:]
+        temp_solvente[np.isnan(temp_solvente)] = 0
+        
+        # ---  ELIMINAR DUPLICADOS Y ORDENAR (SOLVENTE) ---
+        self.WLSol, idx_wl_sol = np.unique(temp_WLSol, return_index=True)
+        self.TDSol, idx_td_sol = np.unique(temp_TDSol, return_index=True)
+        self.solvente = temp_solvente[idx_wl_sol, :][:, idx_td_sol]
         
         # --- Configurar sliders de λ ---
         nwl = len(self.WL)
