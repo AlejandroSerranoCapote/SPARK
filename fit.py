@@ -145,42 +145,88 @@ def eval_global_model(x, t, numExp, numWL, t0_choice_str):
     return F
 
 
+# def get_sequential_populations(t, t0, w, taus):
+#     """ 
+#     Calculates populations for a sequential model A -> B -> C... 
+#     (Kept logical loop structure as sequential dependencies are complex to fully vectorize cleanly)
+#     """
+#     k = 1.0 / np.asarray(taus) # Rates
+#     pops = []
+    
+#     # Get all basic exponentials at once
+#     E_matrix = convolved_exp_vectorized(t, t0, taus, w)
+#     E = [E_matrix[:, i] for i in range(len(taus))]
+    
+#     # --- Species 1 ---
+#     pops.append(E[0])
+    
+#     # --- Species 2 ---
+#     if len(taus) >= 2:
+#         denom = k[1] - k[0]
+#         if abs(denom) < 1e-9: denom = 1e-9 
+#         factor = k[0] / denom
+#         p2 = factor * (E[0] - E[1])
+#         pops.append(p2)
+        
+#     # --- Species 3 ---
+#     if len(taus) >= 3:
+#         k0, k1, k2 = k[0], k[1], k[2]
+#         d0 = (k[1]-k[0]) * (k[2]-k[0])
+#         d1 = (k[0]-k[1]) * (k[2]-k[1])
+#         d2 = (k[0]-k[2]) * (k[1]-k[2])
+#         # Safety for degenerate rates
+#         if abs(d0) < 1e-9: d0 = 1e-9
+#         if abs(d1) < 1e-9: d1 = 1e-9
+#         if abs(d2) < 1e-9: d2 = 1e-9
+        
+#         p3 = (k0 * k1) * ( (E[0]/d0) + (E[1]/d1) + (E[2]/d2) )
+#         pops.append(p3)
+
+#     return pops
+
 def get_sequential_populations(t, t0, w, taus):
     """ 
     Calculates populations for a sequential model A -> B -> C... 
-    (Kept logical loop structure as sequential dependencies are complex to fully vectorize cleanly)
+    Using a dynamic Bateman equations generator.
+    Supports ANY number of exponential components.
     """
-    k = 1.0 / np.asarray(taus) # Rates
+    k = 1.0 / np.asarray(taus) # Rates (k = 1/tau)
     pops = []
     
     # Get all basic exponentials at once
     E_matrix = convolved_exp_vectorized(t, t0, taus, w)
     E = [E_matrix[:, i] for i in range(len(taus))]
     
-    # --- Species 1 ---
-    pops.append(E[0])
+    num_species = len(taus)
     
-    # --- Species 2 ---
-    if len(taus) >= 2:
-        denom = k[1] - k[0]
-        if abs(denom) < 1e-9: denom = 1e-9 
-        factor = k[0] / denom
-        p2 = factor * (E[0] - E[1])
-        pops.append(p2)
-        
-    # --- Species 3 ---
-    if len(taus) >= 3:
-        k0, k1, k2 = k[0], k[1], k[2]
-        d0 = (k[1]-k[0]) * (k[2]-k[0])
-        d1 = (k[0]-k[1]) * (k[2]-k[1])
-        d2 = (k[0]-k[2]) * (k[1]-k[2])
-        # Safety for degenerate rates
-        if abs(d0) < 1e-9: d0 = 1e-9
-        if abs(d1) < 1e-9: d1 = 1e-9
-        if abs(d2) < 1e-9: d2 = 1e-9
-        
-        p3 = (k0 * k1) * ( (E[0]/d0) + (E[1]/d1) + (E[2]/d2) )
-        pops.append(p3)
+    for i in range(num_species):
+        if i == 0:
+            # Species 1 is always just the first exponential decay
+            pops.append(E[0])
+        else:
+            # For Species i (where i > 0), calculate the Bateman equation dynamically
+            
+            # 1. Product of all previous rates: k_0 * k_1 * ... * k_{i-1}
+            rate_prod = np.prod(k[:i])
+            
+            # 2. Sum over all exponentials up to i
+            species_pop = np.zeros_like(E[0])
+            for j in range(i + 1):
+                # Calculate the denominator product: prod(k_m - k_j) for m != j
+                denom = 1.0
+                for m in range(i + 1):
+                    if m != j:
+                        diff = k[m] - k[j]
+                        # Safety for degenerate rates (if two taus are too similar)
+                        if abs(diff) < 1e-12: 
+                            diff = 1e-12 if diff >= 0 else -1e-12
+                        denom *= diff
+                
+                # Add the term to the sum
+                species_pop += E[j] / denom
+            
+            # 3. Final population for species i
+            pops.append(rate_prod * species_pop)
 
     return pops
 

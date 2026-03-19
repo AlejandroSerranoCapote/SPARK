@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QProgressBar, QTableWidget, QTableWidgetItem,
     QHeaderView, QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, 
     QFormLayout, QWidget, QTabWidget, QApplication, QInputDialog,
-    QCheckBox
+    QCheckBox,QLineEdit
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
@@ -14,7 +14,6 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
-
 # Import your physics modules
 import fit
 # import core_analysis # Uncomment if strictly needed, usually accessed via fit or parent
@@ -326,6 +325,18 @@ class GlobalFitPanel(QDialog):
         form_prep.addRow("Min WL (nm):", self.spin_wl_min)
         form_prep.addRow("Max WL (nm):", self.spin_wl_max)
 
+        self.line_exclude = QLineEdit()
+        self.line_exclude.setPlaceholderText("e.g. 490-540, 600-615")
+        
+        # Usamos editingFinished para que actualice solo al dar "Enter" o hacer click fuera,
+        # así evitamos que el programa falle mientras estás a mitad de teclear algo como "490-"
+        self.line_exclude.editingFinished.connect(self._preview_data_processing)
+        
+        form_prep.addRow("Exclude WLs:", self.line_exclude)
+        
+
+
+        
         # Rangos Tiempo
         self.spin_t_min = QDoubleSpinBox(); self.spin_t_min.setRange(-100, 1e6); self.spin_t_min.setDecimals(3)
         self.spin_t_max = QDoubleSpinBox(); self.spin_t_max.setRange(-100, 1e6); self.spin_t_max.setDecimals(3)
@@ -788,16 +799,42 @@ class GlobalFitPanel(QDialog):
             # Asumiendo forma (WL, TD) -> axis 1 es tiempo
             baseline = np.mean(temp_data[:, :n_pts], axis=1, keepdims=True)
             temp_data = temp_data - baseline
-
+            
         # 3. Crop Wavelength
         w_min = self.spin_wl_min.value()
         w_max = self.spin_wl_max.value()
         mask_w = (temp_WL >= min(w_min, w_max)) & (temp_WL <= max(w_min, w_max))
         
+        # --- CÓDIGO NUEVO: PROCESADOR DE MULTI-CROP ---
+        if hasattr(self, 'line_exclude'):
+            exclude_str = self.line_exclude.text().strip()
+            if exclude_str:
+                # Empezamos con una máscara de exclusión vacía (todo Falso)
+                mask_exclude = np.zeros_like(temp_WL, dtype=bool)
+                
+                # Separamos por comas (por si hay varios rangos)
+                ranges = exclude_str.split(',')
+                for r in ranges:
+                    try:
+                        # Separamos por el guion
+                        parts = r.split('-')
+                        if len(parts) == 2:
+                            c_min = float(parts[0].strip())
+                            c_max = float(parts[1].strip())
+                            
+                            # Acumulamos las zonas a excluir con el operador OR (|)
+                            mask_exclude |= (temp_WL >= min(c_min, c_max)) & (temp_WL <= max(c_min, c_max))
+                    except ValueError:
+                        # Si tecleas algo mal (ej. una letra), lo ignora sin colapsar el programa
+                        pass 
+                
+                # Aplicamos la exclusión general: conservamos lo que teníamos ANTES y que NO esté excluido
+                mask_w &= (~mask_exclude)
+        # ----------------------------------------------
+        
         if np.any(mask_w):
             temp_data = temp_data[mask_w, :]
             temp_WL = temp_WL[mask_w]
-
         # 4. Crop Time
         t_min = self.spin_t_min.value()
         t_max = self.spin_t_max.value()
