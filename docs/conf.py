@@ -10,6 +10,18 @@ author = 'Alejandro Serrano Capote'
 # Puedes poner la versión actual de tu software aquí
 release = '0.1.0'
 
+# --- Dependencias simuladas para Autodoc ---
+# Esto evita que Sphinx falle al no encontrar estas librerías pesadas en el servidor
+autodoc_mock_imports = [
+    'numpy',
+    'scipy',
+    'matplotlib',
+    'PyQt6',
+    'pyqtgraph',
+    'pandas',
+    'lmfit'
+]
+
 # --- Configuración General ---
 extensions = [
     'sphinx.ext.autodoc',      # Extrae documentación de los docstrings
