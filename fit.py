@@ -6,7 +6,28 @@ from scipy import special as _special
 
 def load_npy(parent=None, normalize_per_wl=True):
     """
-    Carga el archivo .npy.
+        Opens a dialog to load a treated data file (.npy).
+        
+        Parameters
+        ----------
+        parent : QWidget, optional
+            The parent widget for the dialog. Defaults to None.
+        normalize_per_wl : bool, optional
+            (Currently unused) Flag to normalize per wavelength.
+    
+        Returns
+        -------
+        tuple
+            A tuple containing:
+            - data_c (numpy.ndarray): Data matrix.
+            - TD (numpy.ndarray): Time delay vector.
+            - WL (numpy.ndarray): Wavelength vector.
+            - base_dir (str): Directory of the selected file.
+    
+        Raises
+        ------
+        ValueError
+            If the user cancels the file selection.
     """
     file_path, _ = QFileDialog.getOpenFileName(parent, "Select treated data file", "", "NumPy files (*.npy)")
     if not file_path:
@@ -22,14 +43,69 @@ def load_npy(parent=None, normalize_per_wl=True):
     return data_c, TD, WL, base_dir
 
 def crop_spectrum(data_c, WL, WLmin, WLmax):
+    """
+        Crops the spectral data to a specific wavelength range.
+    
+        Parameters
+        ----------
+        data_c : numpy.ndarray
+            Original data matrix (Times x Wavelengths).
+        WL : numpy.ndarray
+            Wavelength vector.
+        WLmin : float
+            Lower wavelength limit.
+        WLmax : float
+            Upper wavelength limit.
+    
+        Returns
+        -------
+        tuple
+            Cropped data matrix and cropped wavelength vector.
+    """
     mask = (WL >= WLmin) & (WL <= WLmax)
     return data_c[:, mask], WL[mask] 
 
 def crop_kinetics(data_c, TD, TDmin, TDmax):
+    """
+        Crops the kinetics to a specific time range.
+    
+        Parameters
+        ----------
+        data_c : numpy.ndarray
+            Original data matrix (Times x Wavelengths).
+        TD : numpy.ndarray
+            Time delay vector.
+        TDmin : float
+            Lower time limit.
+        TDmax : float
+            Upper time limit.
+    
+        Returns
+        -------
+        tuple
+            Cropped data matrix and cropped time vector.
+    """
     mask = (TD >= TDmin) & (TD <= TDmax)
     return data_c[:, mask], TD[mask] 
 
 def binning(data_c, WL, bin_size):
+    """
+        Bins adjacent wavelength channels to improve the signal-to-noise ratio.
+    
+        Parameters
+        ----------
+        data_c : numpy.ndarray
+            Original data matrix.
+        WL : numpy.ndarray
+            Wavelength vector.
+        bin_size : int
+            Number of channels to bin together.
+    
+        Returns
+        -------
+        tuple
+            Averaged data matrix and averaged wavelength vector.
+    """
     numWL = len(WL) // bin_size
     datacAVG = np.zeros((numWL, data_c.shape[1]))
     WLAVG = np.zeros(numWL)
@@ -40,8 +116,26 @@ def binning(data_c, WL, bin_size):
 
 def convolved_exp_vectorized(t, t0, taus, w):
     """
-    Versión HÍBRIDA: Vectorizada pero usando 'erf' (más rápida que erfc).
-    Optimized for Speed.
+        Calculates a sum of exponential decays convolved with a Gaussian IRF.
+        
+        HYBRID Version: Vectorized but using 'erf' (faster than erfc).
+        Optimized for speed using NumPy broadcasting.
+    
+        Parameters
+        ----------
+        t : numpy.ndarray
+            Time delay vector.
+        t0 : float
+            Time zero (center of the IRF).
+        taus : list or numpy.ndarray
+            List of exponential lifetimes.
+        w : float
+            Width of the Instrument Response Function (IRF, related to FWHM).
+    
+        Returns
+        -------
+        numpy.ndarray
+            Matrix of convolved exponential shapes evaluated at t.
     """
     # t -> (N, 1)
     if t.ndim == 1:
@@ -71,42 +165,36 @@ def convolved_exp_vectorized(t, t0, taus, w):
     # Fórmula: 0.5 * exp(arg1) * (1 - erf(arg2))
     return 0.5 * np.exp(arg1) * (1 - _special.erf(arg2))
 
-# from scipy.special import erfcx
-
-# def convolved_exp_vectorized(t, t0, taus, w):
-#     """
-#     Versión Robusta: Utiliza erfcx para evitar saltos numéricos y 
-#     manejar correctamente la subida (rise time).
-#     """
-#     # Asegurar dimensiones para broadcasting
-#     if t.ndim == 1:
-#         t = t[:, np.newaxis]
-    
-#     taus = np.asarray(taus)
-#     if taus.ndim == 1:
-#         taus = taus[np.newaxis, :]
-    
-#     # Parámetros de seguridad
-#     tau_safe = np.maximum(taus, 1e-15)
-#     w_safe = np.maximum(w, 1e-15)
-#     t_diff = t - t0
-    
-#     # Reescribimos el argumento para usar erfcx(x)
-#     # La forma analítica estable es:
-#     # 0.5 * exp((w/(sqrt(2)*tau))^2 - (t-t0)/tau) * erfc( (w^2 - tau*(t-t0))/(sqrt(2)*w*tau) )
-    
-#     # Definimos x para erfcx(x)
-#     # x = [w / (sqrt(2)*tau)] - [(t-t0) / (sqrt(2)*w)]
-#     x = (w_safe / (np.sqrt(2) * tau_safe)) - (t_diff / (np.sqrt(2) * w_safe))
-    
-#     # La expresión completa se reduce a:
-#     return 0.5 * erfcx(x) * np.exp(-(t_diff**2) / (2 * w_safe**2))
-
 # =============================================================================
 # MODEL EVALUATION FUNCTIONS
 # =============================================================================
 
 def eval_global_model(x, t, numExp, numWL, t0_choice_str):
+    """
+        Evaluates the global parallel model (DAS - Decay Associated Spectra).
+    
+        Calculates the 2D data surface (Time x Wavelength) based on 
+        shared lifetimes and independent amplitudes per wavelength.
+    
+        Parameters
+        ----------
+        x : list or numpy.ndarray
+            Array of fitting parameters (w, t0, taus, amplitudes).
+        t : numpy.ndarray
+            Time delay vector.
+        numExp : int
+            Number of exponential components.
+        numWL : int
+            Number of wavelengths to fit.
+        t0_choice_str : str
+            'Yes' for fitting with chirp correction (variable t0 per wavelength),
+            any other value for standard global fitting (single shared t0).
+    
+        Returns
+        -------
+        numpy.ndarray
+            Simulated data matrix (Time x Wavelength).
+    """
     F = np.zeros((len(t), numWL))
     
     if t0_choice_str == 'Yes': # CHIRP MODE
@@ -144,51 +232,28 @@ def eval_global_model(x, t, numExp, numWL, t0_choice_str):
         
     return F
 
-
-# def get_sequential_populations(t, t0, w, taus):
-#     """ 
-#     Calculates populations for a sequential model A -> B -> C... 
-#     (Kept logical loop structure as sequential dependencies are complex to fully vectorize cleanly)
-#     """
-#     k = 1.0 / np.asarray(taus) # Rates
-#     pops = []
-    
-#     # Get all basic exponentials at once
-#     E_matrix = convolved_exp_vectorized(t, t0, taus, w)
-#     E = [E_matrix[:, i] for i in range(len(taus))]
-    
-#     # --- Species 1 ---
-#     pops.append(E[0])
-    
-#     # --- Species 2 ---
-#     if len(taus) >= 2:
-#         denom = k[1] - k[0]
-#         if abs(denom) < 1e-9: denom = 1e-9 
-#         factor = k[0] / denom
-#         p2 = factor * (E[0] - E[1])
-#         pops.append(p2)
-        
-#     # --- Species 3 ---
-#     if len(taus) >= 3:
-#         k0, k1, k2 = k[0], k[1], k[2]
-#         d0 = (k[1]-k[0]) * (k[2]-k[0])
-#         d1 = (k[0]-k[1]) * (k[2]-k[1])
-#         d2 = (k[0]-k[2]) * (k[1]-k[2])
-#         # Safety for degenerate rates
-#         if abs(d0) < 1e-9: d0 = 1e-9
-#         if abs(d1) < 1e-9: d1 = 1e-9
-#         if abs(d2) < 1e-9: d2 = 1e-9
-        
-#         p3 = (k0 * k1) * ( (E[0]/d0) + (E[1]/d1) + (E[2]/d2) )
-#         pops.append(p3)
-
-#     return pops
-
 def get_sequential_populations(t, t0, w, taus):
     """ 
-    Calculates populations for a sequential model A -> B -> C... 
-    Using a dynamic Bateman equations generator.
-    Supports ANY number of exponential components.
+        Calculates the populations for a sequential model (A -> B -> C...).
+        
+        Uses a dynamic Bateman equations generator to support any number 
+        of exponential components.
+    
+        Parameters
+        ----------
+        t : numpy.ndarray
+            Time vector.
+        t0 : float
+            Time zero.
+        w : float
+            Width of the IRF.
+        taus : list
+            List of lifetimes for each sequential species.
+    
+        Returns
+        -------
+        list of numpy.ndarray
+            List where each element is the population over time for the corresponding species.
     """
     k = 1.0 / np.asarray(taus) # Rates (k = 1/tau)
     pops = []
@@ -232,7 +297,25 @@ def get_sequential_populations(t, t0, w, taus):
 
 def eval_sequential_model(x, t, numExp, numWL, t0_choice_str):
     """
-    Sequential Model (A -> B -> C...)
+        Evaluates the sequential model (SAS - Species Associated Spectra).
+    
+        Parameters
+        ----------
+        x : list
+            Parameter array.
+        t : numpy.ndarray
+            Time vector.
+        numExp : int
+            Number of species in the cascade.
+        numWL : int
+            Number of wavelengths.
+        t0_choice_str : str
+            'Yes' for chirp correction mode.
+    
+        Returns
+        -------
+        numpy.ndarray
+            Simulated data matrix.
     """
     F = np.zeros((len(t), numWL))
     
@@ -275,8 +358,30 @@ def eval_sequential_model(x, t, numExp, numWL, t0_choice_str):
 
 def damped_oscillation(t, t0, alpha, omega, phi, w):
     """
-    Calculates damped oscillation with a Soft Step (approximating IRF convolution).
-    S(t) = 0.5 * (1 + erf((t-t0)/(sqrt(2)*w))) * exp(-alpha*(t-t0)) * sin(omega*(t-t0) + phi)
+        Calculates a damped oscillation with a smooth step (approximating IRF convolution).
+    
+        Equation used:
+        $S(t) = 0.5 \cdot (1 + \text{erf}((t-t0)/(\sqrt{2}w))) \cdot \exp(-\alpha(t-t0)) \cdot \sin(\omega(t-t0) + \phi)$
+    
+        Parameters
+        ----------
+        t : numpy.ndarray
+            Time vector.
+        t0 : float
+            Time zero (start of the oscillation).
+        alpha : float
+            Damping rate.
+        omega : float
+            Angular frequency of the oscillation.
+        phi : float
+            Initial phase (in radians).
+        w : float
+            Width of the IRF (controls the smoothness of the onset).
+    
+        Returns
+        -------
+        numpy.ndarray
+            Vector with the damped oscillatory signal.
     """
     t_shifted = t - t0
     
@@ -302,7 +407,30 @@ def damped_oscillation(t, t0, alpha, omega, phi, w):
 
 def eval_oscillation_model(x, t, numExp, numWL, t0_choice_str):
     """
-    Model: Sum(A_i * Exp_i) + B * Oscillation
+        Evaluates a model combining parallel exponential decays and a damped oscillation.
+    
+        Parameters
+        ----------
+        x : list
+            Model parameters (w, t0, taus, alpha, omega, phi, local amplitudes).
+        t : numpy.ndarray
+            Time vector.
+        numExp : int
+            Number of exponential decays.
+        numWL : int
+            Number of wavelengths.
+        t0_choice_str : str
+            Must be 'No' (Chirp is not yet implemented for this model).
+    
+        Returns
+        -------
+        numpy.ndarray
+            Simulated data matrix.
+    
+        Raises
+        ------
+        NotImplementedError
+            If attempted to use with `t0_choice_str == 'Yes'`.
     """
     F = np.zeros((len(t), numWL))
     
