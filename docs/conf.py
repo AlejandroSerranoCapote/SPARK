@@ -16,6 +16,7 @@ autodoc_mock_imports = [
     'numpy',
     'scipy',
     'matplotlib',
+    'PyQt5', 
     'PyQt6',
     'pyqtgraph',
     'pandas',
