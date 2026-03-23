@@ -20,7 +20,8 @@ autodoc_mock_imports = [
     'PyQt6',
     'pyqtgraph',
     'pandas',
-    'lmfit'
+    'lmfit',
+    'mpl_toolkits'
 ]
 
 # --- Configuración General ---
