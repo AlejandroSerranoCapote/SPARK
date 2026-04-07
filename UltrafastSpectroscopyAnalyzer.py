@@ -1073,6 +1073,10 @@ class FLUPSAnalyzer(QMainWindow):
     
             # 2. Actualizar posiciones matemáticas (sin dibujar aún)
             x, y = event.xdata, event.ydata
+            if x is None or y is None: return
+            
+            self._last_cursor_x = x
+            self._last_cursor_y = y
             
             # Líneas del mapa
             self.vline_map.set_xdata([x, x])
@@ -1691,6 +1695,14 @@ class TASAnalyzer(FLUPSAnalyzer):
             if source_data is None:
                 return
     
+            saved_x, saved_y = None, None
+            if getattr(self, 'marker_map', None) is not None:
+                try:
+                    saved_x = self.marker_map.get_xdata()[0]
+                    saved_y = self.marker_map.get_ydata()[0]
+                except Exception:
+                    pass
+                
             # --- Limpieza ---
             self.ax_map.clear()
             self.ax_time_small.clear()
@@ -1717,7 +1729,7 @@ class TASAnalyzer(FLUPSAnalyzer):
             
             wl_plot = self.WL[idx_start:idx_end]
             
-            # AQUI ESTA EL CAMBIO IMPORTANTE: Usamos source_data en vez de self.data
+            # Usamos source_data en vez de self.data
             data_plot = source_data[idx_start:idx_end, :]
             
             if len(wl_plot) < 2: return
@@ -1752,14 +1764,18 @@ class TASAnalyzer(FLUPSAnalyzer):
             self.cbar = self.figure.colorbar(self.pcm, cax=cax, label="ΔA")
             self.ax_map.set_yscale('symlog', linthresh=1.0)
     
-            # --- 5. Elementos Dinámicos ---
-            mid_x = np.median(wl_plot)
-            mid_y = np.median(self.TD)
+            if saved_x is not None and saved_y is not None:
+                # np.clip evita que el cursor se quede fuera de la pantalla si recortas demasiado con el slider
+                mid_x = np.clip(saved_x, wl_plot.min(), wl_plot.max())
+                mid_y = saved_y
+            else:
+                mid_x = np.median(wl_plot)
+                mid_y = np.median(self.TD)
             
             self.vline_map = self.ax_map.axvline(mid_x, color="k", ls="--", lw=1, animated=True)
             self.hline_map = self.ax_map.axhline(mid_y, color="k", ls="--", lw=1, animated=True)
             self.marker_map, = self.ax_map.plot([mid_x], [mid_y], "wx", markersize=8, markeredgewidth=2, animated=True)
-    
+        
             # --- 6. Configurar Subplots Pequeños ---
             
             # A) CINÉTICA (Abajo-Izquierda)
@@ -1768,7 +1784,15 @@ class TASAnalyzer(FLUPSAnalyzer):
             self.vline_time_small = self.ax_time_small.axvline(mid_y, color='k', ls='--', lw=1.2, animated=True)
             
             self.ax_time_small.set_xscale('linear') 
-            self.ax_time_small.set_xlim(self.TD.min(), self.TD.max())
+            
+            try:
+                user_xmin = float(self.xmin_edit.text())
+                user_xmax = float(self.xmax_edit.text())
+                self.ax_time_small.set_xlim(user_xmin, user_xmax)
+            except ValueError:
+                self.ax_time_small.set_xlim(self.TD.min(), self.TD.max())
+                
+
             self.ax_time_small.set_ylim(y_lim_min, y_lim_max)
             self.ax_time_small.set_title("Kinetics")
             self.ax_time_small.set_xlabel("Delay (ps)")
@@ -1890,7 +1914,7 @@ class TASAnalyzer(FLUPSAnalyzer):
             y_spec = self.data[:, idx_td]
             self.cut_spec_small.set_data(self.WL, y_spec)
     
-            # 6. Dibujar SOLO los elementos animados
+            # 6. Dibujar los elementos animados
             self.draw_animated_artists()
     
             # 7. Volcar a pantalla (Blit)
