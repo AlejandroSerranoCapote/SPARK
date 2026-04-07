@@ -14,7 +14,6 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
-# Import your physics modules
 import fit
 # import core_analysis # Uncomment if strictly needed, usually accessed via fit or parent
 
@@ -333,10 +332,7 @@ class GlobalFitPanel(QDialog):
         self.line_exclude.editingFinished.connect(self._preview_data_processing)
         
         form_prep.addRow("Exclude WLs:", self.line_exclude)
-        
-
-
-        
+    
         # Rangos Tiempo
         self.spin_t_min = QDoubleSpinBox(); self.spin_t_min.setRange(-100, 1e6); self.spin_t_min.setDecimals(3)
         self.spin_t_max = QDoubleSpinBox(); self.spin_t_max.setRange(-100, 1e6); self.spin_t_max.setDecimals(3)
@@ -349,6 +345,10 @@ class GlobalFitPanel(QDialog):
         self.spin_bin.setRange(1, 50)
         self.spin_bin.setValue(1)
         form_prep.addRow("Binning:", self.spin_bin)
+        
+        self.chk_zero_neg = QCheckBox("Set t < 0 to zero (background)")
+        self.chk_zero_neg.setChecked(False) # Desmarcado por defecto
+        form_prep.addRow(self.chk_zero_neg)
         
         # Botón Preview
         self.btn_preview = QPushButton("Apply & Preview")
@@ -409,6 +409,7 @@ class GlobalFitPanel(QDialog):
 
         # --- Botones Finales ---
         self.btn_run = QPushButton("RUN FIT")
+        self.btn_preview = QPushButton("Apply & Preview")
         self.btn_run.setFixedHeight(40)  
         self.btn_run.setEnabled(False)
         self.btn_run.clicked.connect(self.run_fit_pipeline) 
@@ -844,6 +845,10 @@ class GlobalFitPanel(QDialog):
             temp_data = temp_data[:, mask_t]
             temp_TD = temp_TD[mask_t]
 
+        if hasattr(self, 'chk_zero_neg') and self.chk_zero_neg.isChecked():
+                    mask_neg = temp_TD < 0
+                    if np.any(mask_neg):
+                        temp_data[:, mask_neg] = 0.0  # El background real post-baseline es 0
         # 5. Binning (Simple averaging)
         b_size = self.spin_bin.value()
         if b_size > 1:
@@ -867,7 +872,22 @@ class GlobalFitPanel(QDialog):
         # Pintar
         self._update_exp_canvas(use_processed=True)
         self.label_status.setText(f"Data Ready: {len(temp_WL)} WL, {len(temp_TD)} TD")
-
+        # --- CÓDIGO PARA GUARDAR EL MAPA 2D ---
+        try:
+            if self.base_dir:
+                import os # Por si no estuviera importado a nivel local, aunque lo tienes arriba
+                outdir = os.path.join(self.base_dir, "Plots")
+                os.makedirs(outdir, exist_ok=True)
+                
+                # Definimos el nombre del archivo
+                save_path = os.path.join(outdir, "Experimental_Processed_Preview.png")
+                
+                # Extraemos la figura del canvas experimental y la guardamos
+                self.canvas_exp.figure.savefig(save_path, dpi=300, bbox_inches='tight')
+                print(f"Mapa 2D guardado en: {save_path}")
+        except Exception as e:
+            print(f"Error al guardar automáticamente la previsualización: {e}")
+        
     def _update_exp_canvas(self, use_processed=False):
             """Pinta el mapa experimental con escala dinámica y soporte Linear/SymLog."""
             if self.data_c is None: return
@@ -899,19 +919,20 @@ class GlobalFitPanel(QDialog):
                                                       shading="auto", cmap='jet', 
                                                       vmin=vmin, vmax=vmax)
                 
-                self.ax_exp.set_title(Title)
-                self.ax_exp.set_xlabel("Energy (eV)")
+                # self.ax_exp.set_title(Title)
+                # self.ax_exp.set_xlabel("Energy (eV)")
+                self.ax_exp.set_xlabel("Wavelength (nm)")
                 self.ax_exp.set_ylabel("Delay (ps)")
                 
                 # --- APLICAR ESCALA Y (CONDICIONAL) ---
                 if hasattr(self, 'yscale') and self.yscale == 'symlog':
-                    self.ax_exp.set_yscale('symlog', linthresh=1.0)
+                    self.ax_exp.set_yscale('symlog', linthresh=2)
                 else:
                     self.ax_exp.set_yscale('linear')
                 
                 divider = make_axes_locatable(self.ax_exp)
                 cax = divider.append_axes("right", size="5%", pad=0.05)
-                self.cbar_exp = self.canvas_exp.figure.colorbar(self.pcm_exp, cax=cax, label='Transient absorption / -')
+                self.cbar_exp = self.canvas_exp.figure.colorbar(self.pcm_exp, cax=cax, label='$\Delta A$ / -')
                 
                 self.canvas_exp.draw_idle()
                 
@@ -1459,7 +1480,6 @@ class GlobalFitPanel(QDialog):
                 color = colors[n % len(colors)]
                 marker = markers[n % len(markers)] # Asignar marcador
     
-                # --- NUEVO CÓDIGO: Usar errorbar en lugar de fill_between ---
                 if self.errAs is not None:
                     # Limpiamos los posibles NaNs en el error para que matplotlib no se queje
                     err_y = np.nan_to_num(self.errAs[n])

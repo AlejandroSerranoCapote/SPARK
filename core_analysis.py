@@ -125,41 +125,35 @@ def t0_model(w, a, b, c, d):
     return out
 
 def apply_t0_correction_poly(popt, WL, TD, data):
-    """Corrige datos usando un polinomio de grado 4.
-    popt puede ser array-like con 5 coeficientes [c4,c3,c2,c1,c0] (como np.polyfit devuelve).
-    Devuelve: corrected (same shape as data), t0_lambda (1D over WL)
-    """
-    # Acepta tanto coeficientes de np.polyfit (length 5) como exactamente (c4..c0)
     coeffs = np.asarray(popt)
     if coeffs.size != 5:
         raise ValueError("Polynomial coefficients must have length 5.")
-    # np.polyval expects highest-first, so if user passed as [c4,c3,c2,c1,c0] that's ok
     t0_lambda = np.polyval(coeffs, WL)
     corrected = np.zeros_like(data)
     for i, wl in enumerate(WL):
         delay_corr = TD - t0_lambda[i]
-        f = interp1d(delay_corr, data[i, :], kind='cubic', bounds_error=False, fill_value='extrapolate')
+        
+        # SOLUCIÓN: Usar estrictamente 0.0 para rellenar los datos fuera de rango
+        f = interp1d(delay_corr, data[i, :], kind='linear', bounds_error=False, fill_value=0.0)
         corrected[i, :] = f(TD)
+        
     return corrected, t0_lambda
 
 
 def apply_t0_correction_nonlinear(popt, WL, TD, data):
-    """Corrige datos usando los parámetros popt del modelo no lineal t0_model.
-    Donde t0_model(WL) devuelve NaN, los datos se mantienen sin corregir.
-    Devuelve: corrected, t0_lambda
-    """
-    t0_lambda = t0_model(WL, *popt)  # puede contener NaNs
+    t0_lambda = t0_model(WL, *popt)
     corrected = data.copy()
     for i, t0_val in enumerate(t0_lambda):
         if np.isfinite(t0_val):
             delay_corr = TD - t0_val
-            f = interp1d(delay_corr, data[i, :], kind='cubic', bounds_error=False, fill_value='extrapolate')
+            
+            # SOLUCIÓN: Usar estrictamente 0.0 para rellenar los datos fuera de rango
+            f = interp1d(delay_corr, data[i, :], kind='linear', bounds_error=False, fill_value=0.0)
             corrected[i, :] = f(TD)
+            
         else:
             corrected[i, :] = data[i, :]
     return corrected, t0_lambda
-
-
 def fit_t0(w_points, t0_points, WL, TD, data, min_points_nonlinear=4, mode='auto'):
     """
     Ajusta t0 a partir de puntos (w_points,t0_points) seleccionados por el usuario.
