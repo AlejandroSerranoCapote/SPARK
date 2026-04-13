@@ -1,21 +1,21 @@
-#  Formatos de datos admitidos y archivos generados
+#  Supported data formats and generated files
 
-Este documento describe los formatos de archivo que el **Ultrafast Spectroscopy Analyzer** puede importar y exportar.
+This document describes the file formats that the software can import and export.
 
 ---
 
-##  Datos de entrada
+##  Input data
 
 ###  FLUPS (*Fluorescence Up-Conversion Spectroscopy*)
-Se admite un único archivo `.csv` con el siguiente formato:
+Allows a `.csv` file with the following format:
 
-| Fila / Columna | Contenido                |
-|----------------|--------------------------|
-| Primera fila   | Valores de *delay* (ps)  |
-| Primera columna| Longitudes de onda (nm)  |
-| Resto          | Matriz ΔA(λ, t)          |
+| Row / Column     | Content                  |
+|------------------|--------------------------|
+| First row        | Time delays (ps)         |
+| First column     | Wavelengths (nm)         |
+| Remaining matrix | Matrix ΔA(λ, t)          |
 
-Ejemplo:
+Example:
 ```math
 \text{ΔA(λ,t)} =
 \begin{bmatrix}
@@ -24,7 +24,7 @@ Ejemplo:
 410 & 0.001 & 0.004 & 0.008 & 0.003 & 0.000
 \end{bmatrix}
 ```
-También se admiten 3 archivos `.txt` de la siguiente forma:
+It also admits 3 `.txt` files with the following form:
 ```math
 \text{ΔA(λ,t)} =
 \begin{bmatrix}
@@ -47,17 +47,17 @@ También se admiten 3 archivos `.txt` de la siguiente forma:
 ---
 
 ###  TAS (*Transient Absorption Spectroscopy*)
-Se requieren **dos archivos**:
+It requieres **two files**:
 
-1. **Medida experimental** (`sample.csv`)  
-2. **Medida del solvente** (`solvent.csv`)  
+1. **Experimental measurement** (`sample.csv`)  
+2. **Solvent measurement** (`solvent.csv`)  
 
-Ambos deben tener la misma estructura que en FLUPS (`.csv`):
-- Fila 1 → delays  
-- Columna 1 → longitudes de onda  
-- Celdas → ΔA(λ, t)
+Both must have the same structure as in FLUPS (`.csv`):
+- Row 1 → Time delays
+- Column 1 → Wavelengths  
+- Remaining matrix → ΔA(λ, t)
 
-Ejemplo:
+Example:
 ```math
 \text{ΔA(λ,t)} =
 \begin{bmatrix}
@@ -67,43 +67,41 @@ Ejemplo:
 \end{bmatrix}
 ```
 
-El programa combina ambas matrices, resta el solvente, y aplica las correcciones definidas por el usuario.
+The software combines both matrices, subtracts the solvent, and applies the user-defined corrections.
 
 ---
 
-##  Archivos generados automáticamente
-
-Tras ejecutar un ajuste de *t₀* y un análisis global, se crea una carpeta:
+##  Output data
 
 ```text
-<nombre_archivo>_Results/
+<file_name>_Results/
 │
-├── WL.txt                 → Longitudes de onda (nm)
-├── TD.txt                 → Delays (ps)
-├── treated_data.npy       → Datos corregidos en formato NumPy
-├── t0_fit.txt             → Curva de ajuste t₀(λ)
-├── fit_params.txt         → Parámetros del modelo de ajuste
-├── kin.txt                → Cinéticas (ΔA vs tiempo)
-├── spec.txt               → Espectros (ΔA vs λ)
+├── WL.txt                 → Wavelengths (nm)
+├── TD.txt                 → Time delays (ps)
+├── treated_data.npy       → Corrected data in NumPy format
+├── t0_fit.txt             → Fit curve t₀(λ)
+├── fit_params.txt         → Fit model parameters
+├── kin.txt                → Kinetics (ΔA vs time)
+├── spec.txt               → Spectra (ΔA vs λ)
 │
-├── Fit/                   → Carpeta con los resultados del global fit
-│   ├── Amplitudes.txt     → Amplitudes del Decay Associates Spectra 
-│   ├── GFit_resid.txt     → Residuals del ajuste de la cinética
-│   ├── GFit.txt           → Ajuste de la cinética para todas las longitudes de onda
-│   ├── GFitResults.npy    → .npy diccionario de NumPy con todos los datos
-│   ├── TD.txt             → Delays (ps)
-│   └── WL.txt             → Longitudes de onda (nm)
+├── Fit/                   → File with global fit results
+│   ├── Amplitudes.txt     → DAS/SAS Amplitudes 
+│   ├── GFit_resid.txt     → Fit residuals
+│   ├── GFit.txt           → Kinetic fit for all the wavelengths
+│   ├── GFitResults.npy    → .npy dictionary of NumPy with all the data
+│   ├── TD.txt             → Time delays (ps)
+│   └── WL.txt             → Wavelengths (nm)
 │
-└── Plots/                 → Carpeta con los plots del ajuste
-    ├── DAS.png            → Plot del Decay Associated Spectra (DAS)
-    ├── Fit_xxxnm.png      → Plot del ajuste a la cinética de una λ determinada
-    ├── Fit_xxxnm.txt      → Resultados del ajuste a la cinética de una λ determinada
-    └── Residual.png       → Plot de los residuals del ajuste
+└── Plots/                 → File with the fit plots
+    ├── DAS.png            → SAS/DAS Plot
+    ├── Fit_xxxnm.png      → Kinetic fit plot at a specific wavelength
+    ├── Fit_xxxnm.txt      → Kinetic fit at a specific wavelength
+    └── Residual.png       → Residual fit plots
 ```
 
-##  Notas adicionales
+##  Additional notes
 
-- Los archivos `.npy` pueden cargarse directamente en Python con `numpy.load()`.  
-- Los nombres de las carpetas se generan automáticamente según el archivo de entrada.
+- `.npy` files can be loaded directly in Python with `numpy.load()`.
+- File names generates automatically depends of the name of the input file
 
 ---
