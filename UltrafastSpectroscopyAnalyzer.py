@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import (
     QFrame, QGroupBox, QRadioButton, QCheckBox, QSpacerItem, QSizePolicy,QInputDialog
 )
 from PyQt5.QtGui import QFont, QPalette, QColor, QDesktopServices, QIcon
-from PyQt5.QtCore import Qt, QTimer, QUrl, QSize
+from PyQt5.QtCore import Qt, QTimer, QUrl, QSize,QEvent
 
 # --- MÓDULOS LOCALES---
 import fit
@@ -47,83 +47,159 @@ from GlobalFitClassGui import GlobalFitPanel
 from maps_from_timescans import AppWindow as XFELWindow
 
 STYLESHEET = """
-    QMainWindow {
-        background-color: #121212;
+    /* FONDO GENERAL Y TEXTO */
+    QMainWindow, QWidget {
+        background-color: #e6e8ed; /* Gris clarito muy limpio */
+        color: #222222;
+        font-family: "Segoe UI", Arial, sans-serif;
+        font-size: 13px;
+    }
+
+    /* CAJAS DE TEXTO, LISTAS Y DESPLEGABLES (Fondo blanco) */
+    QLineEdit, QComboBox, QListWidget, QTextEdit, QTableWidget {
+        background-color: #FFFFFF;
+        border: 1px solid #C0C0C0;
+        border-radius: 3px;
+        padding: 4px;
+        color: #000000;
     }
     
-    /* TÍTULOS */
-    QLabel#MainTitle {
-        color: #ffffff;
-        font-family: "Segoe UI", sans-serif;
-        font-size: 32px;
-        font-weight: bold;
-        letter-spacing: 1px;
-    }
-    QLabel#SubTitle {
-        color: #00bfff;
-        font-family: "Segoe UI", sans-serif;
-        font-size: 14px;
-        font-weight: 600;
-        margin-bottom: 20px;
-    }
-
-    /* TARJETAS / BOTONES GRANDES */
+    QComboBox::down-arrow {
+            image: none; /* Quitamos la imagen por defecto si la hubiera */
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid #666666; /* Dibuja un triangulito gris */
+            width: 0px;
+            height: 0px;
+            margin-top: 2px;
+        }
+    
+    QComboBox:hover {
+            border: 1px solid #0078D7; /* Se ilumina en azul sutil al pasar el ratón */
+        }
+    
+        /* La zona de la flecha a la derecha */
+        QComboBox::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 25px;
+            border-left: 1px solid #E5E5E5; /* Una línea divisoria sutil en lugar de un bloque gris */
+            background-color: #FAFAFA;
+            border-top-right-radius: 3px;
+            border-bottom-right-radius: 3px;
+        }
+    
+        /* LA LISTA QUE SE ABRE AL HACER CLIC */
+        QComboBox QAbstractItemView {
+            border: 1px solid #C0C0C0;
+            background-color: #FFFFFF;
+            selection-background-color: #E5F1FB; /* Azul muy clarito al pasar el ratón por las opciones */
+            selection-color: #000000;
+            outline: none; /* Elimina la caja punteada fea de Windows */
+        }
+    
+        /* Las opciones individuales dentro de la lista */
+        QComboBox QAbstractItemView::item {
+            padding: 8px 10px; /* Hace que las opciones sean más altas y fáciles de leer */
+            min-height: 25px;
+        }
+        
+    /* BOTONES ESTÁNDAR */
     QPushButton {
-        background-color: #1e1e1e;
-        color: #e0e0e0;
-        border: 2px solid #2a2a2a;
-        border-radius: 12px;
-        font-family: "Segoe UI", sans-serif;
-        font-size: 16px;
-        font-weight: bold;
-        text-align: left;
-        padding: 25px;
+        background-color: #E1E1E1;
+        border: 1px solid #ADADAD;
+        border-radius: 3px;
+        padding: 6px 12px;
+        color: #222222;
     }
     QPushButton:hover {
-        background-color: #252525;
-        border: 2px solid #00bfff;
-        color: #ffffff;
+        background-color: #D4D4D4;
+        border: 1px solid #0078D7; /* Borde azul sutil al pasar el ratón (estilo Windows) */
     }
     QPushButton:pressed {
-        background-color: #00bfff;
-        color: #121212;
+        background-color: #C8C8C8;
     }
 
-    /* ESTILO DESTACADO PARA XFEL (NUEVO) */
-    QPushButton#NewApp {
-        background-color: #162026;
-        border: 2px solid #005f7f;
-    }
-    QPushButton#NewApp:hover {
-        border: 2px solid #00e5ff;
-        background-color: #003f5c;
-    }
-
-    /* BOTÓN GITHUB (PILL STYLE) */
-    QPushButton#GitBtn {
-        background-color: transparent;
-        color: #666;
-        border: 1px solid #444;
-        border-radius: 15px;
-        font-size: 12px;
-        padding: 6px 20px;
-        text-align: center;
-        font-weight: normal;
-    }
-    QPushButton#GitBtn:hover {
-        color: white;
-        border: 1px solid #ffffff;
-        background-color: #222;
-    }
-
-    /* FOOTER TEXT */
-    QLabel#Footer {
-        color: #555;
-        font-size: 11px;
-    }
-    QLabel#Contact {
-        color: #00bfff;
+    /* ESTILO PARA LOS 4 BOTONES PRINCIPALES (Efecto Tarjeta Blanca) */
+    QPushButton#MenuCard {
+        background-color: #FFFFFF; /* Blanco puro para que destaquen del fondo gris */
+        color: #2B2B2B;
+        border: 1px solid #D2D2D2; /* Borde gris muy suave */
+        border-radius: 6px; 
+        font-size: 15px;
         font-weight: bold;
+    }
+    QPushButton#MenuCard:hover {
+        background-color: #F8FBFF; /* Un fondo ligerísimamente azulado */
+        border: 1px solid #0078D7; /* El borde se vuelve azul corporativo */
+        color: #005A9E; /* El texto se oscurece un poco en azul */
+    }
+    QPushButton#MenuCard:pressed {
+        background-color: #E5F1FB;
+        border: 1px solid #005499;
+    }
+
+    /* BOTÓN VERDE DE ACCIÓN PRINCIPAL ("Cargar Archivos", "Exportar") */
+    QPushButton#BtnGreen {
+        background-color: #6CB66C; /* Verde agradable */
+        color: white;
+        border: 1px solid #549A54;
+        border-radius: 3px;
+        font-weight: bold;
+        padding: 8px;
+    }
+    QPushButton#BtnGreen:hover {
+        background-color: #5CA55C;
+        border: 1px solid #468446;
+    }
+    QPushButton#BtnGreen:pressed {
+        background-color: #4A8C4A;
+    }
+
+    /* PESTAÑAS (TABS) */
+    QTabWidget::pane {
+        border: 1px solid #C0C0C0;
+        background: #F0F2F5;
+        top: -1px; /* Solapa el borde de la pestaña seleccionada */
+    }
+    QTabBar::tab {
+        background: #E1E1E1;
+        border: 1px solid #C0C0C0;
+        padding: 6px 15px;
+        margin-right: 2px;
+        border-top-left-radius: 2px;
+        border-top-right-radius: 2px;
+    }
+    QTabBar::tab:selected {
+        background: #F0F2F5;
+        border-bottom-color: #F0F2F5; /* Se fusiona con el fondo */
+        font-weight: bold;
+    }
+    QTabBar::tab:hover:!selected {
+        background: #ECECEC;
+    }
+
+    /* TÍTULOS GRANDES (Si conservas el menú principal) */
+    QLabel#MainTitle {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333333;
+    }
+    
+    /* CHECKBOXES */
+    QCheckBox {
+        spacing: 5px;
+    }
+    QCheckBox::indicator {
+        width: 14px;
+        height: 14px;
+        border: 1px solid #ADADAD;
+        background: #FFFFFF;
+        border-radius: 2px;
+    }
+    QCheckBox::indicator:checked {
+        background: #6CB66C;
+        border: 1px solid #549A54;
     }
 """
 
@@ -135,487 +211,417 @@ class MainApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("Ultrafast Spectroscopy Analyzer")
         self.setMinimumSize(800, 400) 
-        self.setStyleSheet(STYLESHEET)
         
-        # URL de tu GitHub
+        # Aplicamos directamente el nuevo estilo global
+        self.setStyleSheet(STYLESHEET) 
         self.github_url = "https://github.com/AlejandroSerranoCapote/Ultrafast-Spectroscopy-Analyzer"
-
         self.initUI()
 
     def initUI(self):
-            central_widget = QWidget()
-            self.setCentralWidget(central_widget)
-            
-            # Layout Principal
-            main_layout = QVBoxLayout(central_widget)
-            main_layout.setContentsMargins(50, 40, 50, 30)
-            main_layout.setSpacing(1)
-    
-            # 1. ENCABEZADO
-            title = QLabel("SELECT ANALYSIS MODE")
-            title.setObjectName("MainTitle")
-            title.setAlignment(Qt.AlignCenter)
-            
-            subtitle = QLabel("Ultrafast Spectroscopy Processing Tools")
-            subtitle.setObjectName("SubTitle")
-            subtitle.setAlignment(Qt.AlignCenter)
-    
-            main_layout.addWidget(title)
-            main_layout.addWidget(subtitle)
-    
-            # 2. GRID DE BOTONES
-            grid = QGridLayout()
-            grid.setSpacing(20)
-    
-            # Textos
-            txt_flups = "FLUPS ANALYZER"
-            txt_tas   = "TAS ANALYZER"
-            txt_fit   = "GLOBAL FIT"
-            txt_xfel  = "2D MAPPER"    
-            
-            # Crear Botones
-            self.btn_flups = self.create_card(txt_flups)
-            self.btn_tas   = self.create_card(txt_tas)
-            self.btn_fit   = self.create_card(txt_fit)
-            self.btn_xfel  = self.create_card(txt_xfel)
-            self.btn_xfel.setObjectName("NewApp") 
-    
-            # Conectar
-            self.btn_flups.clicked.connect(self.launch_flups)
-            self.btn_tas.clicked.connect(self.launch_tas)
-            self.btn_fit.clicked.connect(self.launch_global)
-            self.btn_xfel.clicked.connect(self.launch_xfel)
-    
-            grid.addWidget(self.btn_flups, 0, 0)
-            grid.addWidget(self.btn_tas, 0, 1)
-            grid.addWidget(self.btn_fit, 1, 0)
-            grid.addWidget(self.btn_xfel, 1, 1)
-    
-            main_layout.addLayout(grid)
-            main_layout.addSpacing(20)
-    
- 
-            footer_layout = QVBoxLayout()
-            footer_layout.setSpacing(10) 
-    
-            self.btn_github = QPushButton("View Source Code on GitHub")
-            self.btn_github.setObjectName("GitBtn")
-            self.btn_github.setCursor(Qt.PointingHandCursor)
-            self.btn_github.setFixedWidth(220)
-            self.btn_github.clicked.connect(self.open_github)
-    
-            # Centrar botón
-            h_center = QHBoxLayout()
-            h_center.addStretch()
-            h_center.addWidget(self.btn_github)
-            h_center.addStretch()
-            footer_layout.addLayout(h_center)
-    
-            description = QLabel(
-                "Welcome! This free and open-source software allows you to analyze "
-                "ultrafast spectroscopy data from experiments such as "
-                "<b>FLUPS</b> (Fluorescence Upconversion Spectroscopy) "
-                "and <b>TAS</b> (Transient Absorption Spectroscopy).<br><br>"
-                "For any questions or feedback, please contact: "
-                "<span style='color:#00bfff; font-weight:bold;'>alejandro.serrano1610@gmail.com</span>"
-            )
-            description.setWordWrap(True)
-            description.setAlignment(Qt.AlignCenter)
-            
-            description.setStyleSheet("""
-                QLabel {
-                    color: #b0b0b0;
-                    font-size: 10pt; 
-                    margin-top: 10px;
-                    font-family: "Segoe UI";
-                }
-            """)
-            
-            footer_layout.addWidget(description)
-            main_layout.addLayout(footer_layout)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        
+        main_layout.setContentsMargins(50, 40, 50, 30)
+        main_layout.setSpacing(1)
+
+        # 1. ENCABEZADO
+        title = QLabel("SELECT ANALYSIS MODE")
+        title.setObjectName("MainTitle")
+        title.setAlignment(Qt.AlignCenter)
+        
+        subtitle = QLabel("Ultrafast Spectroscopy Processing Tools")
+        subtitle.setAlignment(Qt.AlignCenter)
+
+        main_layout.addWidget(title)
+        main_layout.addWidget(subtitle)
+
+        # 2. GRID DE BOTONES
+        grid = QGridLayout()
+        grid.setSpacing(20)
+
+        # Textos
+        txt_flups = "FLUPS ANALYZER"
+        txt_tas   = "TAS ANALYZER"
+        txt_fit   = "GLOBAL FIT"
+        txt_xfel  = "2D MAPPER"    
+        
+        # Crear Botones
+        self.btn_flups = self.create_card(txt_flups)
+        self.btn_tas   = self.create_card(txt_tas)
+        self.btn_fit   = self.create_card(txt_fit)
+        self.btn_xfel  = self.create_card(txt_xfel)
+        
+        # Conectar
+        self.btn_flups.clicked.connect(self.launch_flups)
+        self.btn_tas.clicked.connect(self.launch_tas)
+        self.btn_fit.clicked.connect(self.launch_global)
+        self.btn_xfel.clicked.connect(self.launch_xfel)
+
+        grid.addWidget(self.btn_flups, 0, 0)
+        grid.addWidget(self.btn_tas, 0, 1)
+        grid.addWidget(self.btn_fit, 1, 0)
+        grid.addWidget(self.btn_xfel, 1, 1)
+
+        main_layout.addLayout(grid)
+        main_layout.addSpacing(20)
+
+        # 3. FOOTER
+        footer_layout = QVBoxLayout()
+        footer_layout.setSpacing(10) 
+
+        self.btn_github = QPushButton("View Source Code on GitHub")
+        self.btn_github.setCursor(Qt.PointingHandCursor)
+        self.btn_github.clicked.connect(self.open_github)
+
+        # Centrar botón de GitHub
+        h_center = QHBoxLayout()
+        h_center.addStretch()
+        h_center.addWidget(self.btn_github)
+        h_center.addStretch()
+        footer_layout.addLayout(h_center)
+
+        # Label de descripción
+        description = QLabel(
+            "Welcome! This free and open-source software allows you to analyze "
+            "ultrafast spectroscopy data directly from experiments such as "
+            "<b>FLUPS</b> (Fluorescence Upconversion Spectroscopy) "
+            ",<b>TAS</b> (Transient Absorption Spectroscopy) "
+            "and <b>XTAS</b> (X-Ray Transient Absorption Spectroscopy) <br><br>"
+            "For any questions or feedback, please contact:<br>"
+            "<b>alejandro.serrano1610@gmail.com</b>"
+        )
+        description.setWordWrap(True)
+        description.setAlignment(Qt.AlignCenter)
+        
+        footer_layout.addWidget(description)
+        main_layout.addLayout(footer_layout)
 
     def create_card(self, text):
-        btn = QPushButton(text)
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setMinimumHeight(100)
-        
-        btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0d0d0d;
-                color: #00bfff;
-                border: 2px solid #00bfff;
-                border-radius: 15px;
-                font-family: "Segoe UI Semibold";
-                font-size: 11pt;
-                padding: 20px;
-                text-align: center;
-            }
-            QPushButton:hover {
-                background-color: #00bfff;
-                color: #000000;
-                border: 2px solid #ffffff;
-                /* Simulación de resplandor */
-                font-weight: bold;
-            }
-        """)
-        return btn
+            btn = QPushButton(text)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(80) 
+            
+            btn.setObjectName("MenuCard") 
+            
+            return btn
 
     def open_github(self):
-        QDesktopServices.openUrl(QUrl(self.github_url))
+        # Asegúrate de tener self.github_url definido en tu __init__ si lo quitaste
+        if hasattr(self, 'github_url'):
+            QDesktopServices.openUrl(QUrl(self.github_url))
+
     def open_tool(self, tool_window):
-            """
-            Oculta el menú principal, abre la herramienta y configura
-            que al cerrar la herramienta, el menú reaparezca.
-            """
-            self.current_tool = tool_window
+        """
+        Oculta el menú principal, abre la herramienta y configura
+        que al cerrar la herramienta, el menú reaparezca.
+        """
+        self.current_tool = tool_window
+        original_close = tool_window.closeEvent
+        
+        def on_close_tool(event):
+            self.show()             
+            original_close(event)  
             
-            original_close = tool_window.closeEvent
-            
-            def on_close_tool(event):
-                self.show()             
-                original_close(event)  
-                
-            tool_window.closeEvent = on_close_tool
-            
-            tool_window.show()
-            self.hide()
-            
+        tool_window.closeEvent = on_close_tool
+        tool_window.show()
+        self.hide()
+        
     def launch_xfel(self):
         window = XFELWindow() 
         self.open_tool(window)
 
     def launch_flups(self):
-        print("Abriendo FLUPS...")
         window = FLUPSAnalyzer()
         self.open_tool(window)
 
     def launch_tas(self):
-        print("Abriendo TAS...")
         window = TASAnalyzer()
         self.open_tool(window)
 
     def launch_global(self):
-        print("Abriendo Global Fit...")
         window = GlobalFitPanel()
         self.open_tool(window)
-
         
 class FLUPSAnalyzer(QMainWindow):
 
     def __init__(self):
-        super().__init__()
-        self.setWindowTitle("FLUPS Analyzer — PyQt5 Edition")
-        
-        screen = QApplication.primaryScreen()
-        screen_geom = screen.availableGeometry() # Tamaño útil (sin barra de tareas)
-        
-        w_target = int(screen_geom.width() * 0.85)
-        h_target = int(screen_geom.height() * 0.90)
-        
-        x_pos = (screen_geom.width() - w_target) // 2 + screen_geom.left()
-        
-        y_pos = screen_geom.top() + 35
-        
-        self.setGeometry(x_pos, y_pos, w_target, h_target)
-        
-        self.setMinimumSize(1000, 700)
-    
-        # estado
-        self.WL = None
-        self.TD = None
-        self.data = None
-        self.file_path = None
-        self.data_corrected = None
-        self.result_fit = None
-        self.use_discrete_levels = True  # Cambia a False mapa continuo
-        
-        self.bg_cache = None
-        self.cid_draw = None 
-        self._is_drawing = False
-        # widgets
-        self.btn_load = QPushButton("Load CSV")
-        self.btn_load.clicked.connect(self.load_file)
-
-        self.btn_plot = QPushButton("Show Map")
-        self.btn_plot.clicked.connect(self.plot_map)
-        self.btn_plot.setEnabled(False)
-        self.btn_remove_fringe = QPushButton("Remove Pump Fringe")
-        self.btn_remove_fringe.clicked.connect(self.remove_pump_fringe)
-        self.btn_remove_fringe.setEnabled(True)
-        
-        self.label_status = QLabel("No file loaded")
-    
-        self.btn_select = QPushButton("Select t₀ points")
-        self.btn_select.clicked.connect(self.enable_point_selection)
-        self.btn_select.setEnabled(False)
-    
-        self.btn_fit = QPushButton("Fit t₀")
-        self.btn_fit.clicked.connect(self.fit_t0_points)
-        self.btn_fit.setEnabled(False)
-    
-        self.btn_show_corr = QPushButton("Show Corrected Map")
-        self.btn_show_corr.clicked.connect(self.toggle_corrected_map)
-        self.btn_show_corr.setEnabled(False)
-        self.showing_corrected = False
-        self.btn_global_fit = QPushButton("Global Fit")
-        self.btn_global_fit.clicked.connect(self.open_global_fit)
-        
-
-        self.slider_min = QSlider(Qt.Horizontal)
-        self.slider_max = QSlider(Qt.Horizontal)
-        self.slider_min.setMinimum(0)
-        self.slider_max.setMinimum(0)
-        self.slider_min.valueChanged.connect(self.update_wl_range)
-        self.slider_max.valueChanged.connect(self.update_wl_range)
-
-        self._last_move_time = 0.0
-        self._move_min_interval = 1.0 / 25.0  # como máximo ~25 FPS de actualización por movimiento
-        # matplotlib canvas con gridspec (mapa arriba, cinética y espectro abajo)
-        self.figure = Figure(figsize=(12, 8))
-        self.gs = gridspec.GridSpec(2, 2, height_ratios=[3, 1], width_ratios=[1, 1], hspace=0.25, wspace=0.35)
-        
-        # mapa principal ocupa las dos columnas de la primera fila
-        self.ax_map = self.figure.add_subplot(self.gs[0, :])
-        
-        # segunda fila: dos subplots lado a lado
-        self.ax_time_small = self.figure.add_subplot(self.gs[1, 0])
-        self.ax_spec_small = self.figure.add_subplot(self.gs[1, 1])
-        self.canvas = FigureCanvas(self.figure)
-        self.cid_draw = self.canvas.mpl_connect('draw_event', self.on_draw)
-        
-        self.clicked_points = []   
-        self.cid_click = None     
-        self.cid_move = None  
-    
-        self.cid_move = self.canvas.mpl_connect("motion_notify_event", self.on_move_map)
+            super().__init__()
+            self.setWindowTitle("FLUPS Analyzer")
             
-        # elementos interactivos
-        self.pcm = None
-        self.cbar = None
-        self.marker_map = None
-        self.vline_map = None
-        self.hline_map = None
-        self.fit_line_artist = None
-    
-        self._init_small_plots()
-    
-        # layout
-        top_layout = QHBoxLayout()
+            screen = QApplication.primaryScreen()
+            screen_geom = screen.availableGeometry() # Tamaño útil (sin barra de tareas)
+            
+            w_target = int(screen_geom.width() * 0.85)
+            h_target = int(screen_geom.height() * 0.90)
+            
+            x_pos = (screen_geom.width() - w_target) // 2 + screen_geom.left()
+            y_pos = screen_geom.top() + 35
+            
+            self.setGeometry(x_pos, y_pos, w_target, h_target)
+            self.setMinimumSize(1000, 700)
         
-        top_layout.addWidget(self.btn_load)
-        top_layout.addWidget(self.btn_plot)
-        top_layout.addWidget(self.btn_select)
-        top_layout.addWidget(self.btn_fit)
-        top_layout.addWidget(self.label_status)
-        top_layout.addWidget(self.btn_show_corr)
-        top_layout.addWidget(self.btn_global_fit)
-        top_layout.addWidget(self.btn_remove_fringe)
-
-        layout = QVBoxLayout()
-        layout.addLayout(top_layout)
-        layout.addWidget(self.canvas)
+            # estado
+            self.WL = None
+            self.TD = None
+            self.data = None
+            self.file_path = None
+            self.data_corrected = None
+            self.result_fit = None
+            self.use_discrete_levels = True  # Cambia a False mapa continuo
+            
+            self.bg_cache = None
+            self.cid_draw = None 
+            self._is_drawing = False
     
-        container = QWidget()
-        container.setLayout(layout)
-        self.setCentralWidget(container)
+            # widgets
+            self.btn_load = QPushButton("Load CSV")
+            self.btn_load.setObjectName("BtnGreen")
+            self.btn_load.clicked.connect(self.load_file)
     
-        # estilo
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #121212;
-            }
-            QWidget {
-                background-color: #121212;
-                color: #E0E0E0;
-            }
-            QPushButton {
-                background-color: #1E88E5;
-                color: white;
-                font-weight: bold;
-                padding: 6px;
-                border-radius: 8px;
+            self.btn_plot = QPushButton("Show Map")
+            self.btn_plot.clicked.connect(self.plot_map)
+            self.btn_plot.setEnabled(False)
+            
+            self.btn_remove_fringe = QPushButton("Remove Pump Fringe")
+            self.btn_remove_fringe.clicked.connect(self.remove_pump_fringe)
+            self.btn_remove_fringe.setEnabled(True)
+            
+            self.label_status = QLabel("No file loaded")
+        
+            self.btn_select = QPushButton("Select t₀ points")
+            self.btn_select.clicked.connect(self.enable_point_selection)
+            self.btn_select.setEnabled(False)
+        
+            self.btn_fit = QPushButton("Fit t₀")
+            self.btn_fit.clicked.connect(self.fit_t0_points)
+            self.btn_fit.setEnabled(False)
+        
+            self.btn_show_corr = QPushButton("Show Corrected Map")
+            self.btn_show_corr.clicked.connect(self.toggle_corrected_map)
+            self.btn_show_corr.setEnabled(False)
+            self.showing_corrected = False
+    
+            self.btn_global_fit = QPushButton("Global Fit")
+            self.btn_global_fit.clicked.connect(self.open_global_fit)
+            self.btn_global_fit.setObjectName("BtnGreen")
+    
+            self._last_move_time = 0.0
+            self._move_min_interval = 1.0 / 25.0  
+            
+            self.figure = Figure(figsize=(12, 8))
+            self.gs = gridspec.GridSpec(2, 2, height_ratios=[3, 1], width_ratios=[1, 1], hspace=0.25, wspace=0.35)
+            
+            self.ax_map = self.figure.add_subplot(self.gs[0, :])
+            self.ax_time_small = self.figure.add_subplot(self.gs[1, 0])
+            self.ax_spec_small = self.figure.add_subplot(self.gs[1, 1])
+            
+            self.canvas = FigureCanvas(self.figure)
+            self.cid_draw = self.canvas.mpl_connect('draw_event', self.on_draw)
+            self.cid_move = self.canvas.mpl_connect("motion_notify_event", self.on_move_map)
+            
+            self.clicked_points = []   
+            self.cid_click = None     
                 
-            }
-            QPushButton:hover {
-                background-color: #42A5F5;
-            }
-            QPushButton:disabled {
-                background-color: #555;
-            }
-            QLabel {
-                font-size: 14px;
-                color: #E0E0E0;
-            }
-        """)
+            # elementos interactivos
+            self.pcm = None
+            self.cbar = None
+            self.marker_map = None
+            self.vline_map = None
+            self.hline_map = None
+            self.fit_line_artist = None
+        
+            self._init_small_plots()
+        
+            # Layout principal de la ventana
+            layout = QVBoxLayout()
+    
+            # Layout Top (Botones)
+            top_layout = QHBoxLayout()
+            top_layout.addWidget(self.btn_load)
+            top_layout.addWidget(self.label_status)
+            top_layout.addWidget(self.btn_plot)
+            top_layout.addWidget(self.btn_select)
+            top_layout.addWidget(self.btn_fit)
+            top_layout.addWidget(self.btn_show_corr)
+            top_layout.addWidget(self.btn_remove_fringe)
+            top_layout.addWidget(self.btn_global_fit)
+            layout.addLayout(top_layout)
+            
+            # Añadir Canvas
+            layout.addWidget(self.canvas)
+    
+            # ===================================================================
+            # BLOQUE INFERIOR: CONTROLES CENTRADOS
+            # ===================================================================
+            
+            # Este es el layout que guarda todos los controles (y donde TAS inyectará)
+            self.bottom_controls_layout = QHBoxLayout()
+            self.bottom_controls_layout.setSpacing(25) 
+            
+            # 1. --- Delay ---
+            delay_layout = QVBoxLayout()
+            delay_layout.setSpacing(5)
+            delay_layout.addWidget(QLabel("Delay min (ps):"))
+            self.xmin_edit = QLineEdit("-1")
+            self.xmin_edit.setFixedWidth(50)
+            delay_layout.addWidget(self.xmin_edit)
+            
+            delay_layout.addWidget(QLabel("Delay max (ps):"))
+            self.xmax_edit = QLineEdit("3")
+            self.xmax_edit.setFixedWidth(50)
+            delay_layout.addWidget(self.xmax_edit)
+            
+            self.btn_apply_xlim = QPushButton("Apply X limits")
+            self.btn_apply_xlim.setFixedWidth(120)
+            self.btn_apply_xlim.clicked.connect(self.apply_x_limits)
+            delay_layout.addWidget(self.btn_apply_xlim)
+            delay_layout.addStretch() # Empuja arriba
+            
+            # 2. --- Wavelength ---
+            wl_layout = QVBoxLayout()
+            wl_layout.setSpacing(5)
+            
+            # λ min
+            wl_min_layout = QHBoxLayout()
+            wl_min_label = QLabel("λ min:")
+            self.lbl_min_value = QLabel("400") 
+            self.lbl_min_value.setCursor(Qt.PointingHandCursor)
+            self.lbl_min_value.setToolTip("Haz clic para introducir valor exacto")
+            self.lbl_min_value.installEventFilter(self) # Hacemos que la ventana escuche a este label
+            
+            self.slider_min = QSlider(Qt.Horizontal)
+            self.slider_min.setMinimumWidth(200)
+            self.slider_min.setMinimum(400)
+            self.slider_min.setMaximum(800)
+            self.slider_min.setValue(500)
+            self.slider_min.valueChanged.connect(self.update_wl_range)
+            wl_min_layout.addWidget(wl_min_label)
+            wl_min_layout.addWidget(self.slider_min)
+            wl_min_layout.addWidget(self.lbl_min_value)
+            wl_layout.addLayout(wl_min_layout)
+            
+            # λ max
+            wl_max_layout = QHBoxLayout()
+            wl_max_label = QLabel("λ max:")
+            self.lbl_max_value = QLabel("800") 
+            self.lbl_max_value.setCursor(Qt.PointingHandCursor)
+            self.lbl_max_value.setToolTip("Haz clic para introducir valor exacto")
+            self.lbl_max_value.installEventFilter(self) # Hacemos que la ventana escuche a este label
+            
+            self.slider_max = QSlider(Qt.Horizontal)
+            self.slider_max.setMinimumWidth(200)
+            self.slider_max.setMinimum(400)
+            self.slider_max.setMaximum(800)
+            self.slider_max.setValue(700)
+            self.slider_max.valueChanged.connect(self.update_wl_range)
+            wl_max_layout.addWidget(wl_max_label)
+            wl_max_layout.addWidget(self.slider_max)
+            wl_max_layout.addWidget(self.lbl_max_value)
+            wl_layout.addLayout(wl_max_layout)
+            wl_layout.addStretch() # Empuja arriba
+    
+            # 3. --- Dial Levels ---
+            dial_layout = QVBoxLayout()
+            self.n_levels = 30
+            self.dial_levels = QDial()
+            self.dial_levels.setRange(2, 100)
+            self.dial_levels.setValue(self.n_levels)
+            self.dial_levels.setNotchesVisible(True)
+            self.dial_levels.setWrapping(False)
+            self.dial_levels.setFixedSize(80, 80)
+            self.dial_levels.valueChanged.connect(self.update_n_levels)
+            self.lbl_dial = QLabel(f"{self.n_levels}")
+            self.lbl_dial.setAlignment(Qt.AlignCenter)
+            dial_layout.addWidget(self.dial_levels, alignment=Qt.AlignCenter)
+            dial_layout.addWidget(self.lbl_dial, alignment=Qt.AlignCenter)
+            dial_layout.addStretch()
+    
+            # 4. --- Combo Box (Modelo t0) ---
+            combo_layout = QVBoxLayout()
+            lbl_model = QLabel("Chirp model fit ( t<sub>0</sub> ):")
+            self.combo_model = QComboBox()
+            self.combo_model.addItems(["Polynomial", "Non linear"])
+            self.combo_model.setCurrentIndex(1)
+            combo_layout.addWidget(lbl_model)
+            combo_layout.addWidget(self.combo_model)
+            combo_layout.addStretch()
+    
+        
+            # 5. --- Escala Eje Y ---
+            scale_layout = QVBoxLayout()
+            scale_layout.setSpacing(5)
+            
+            scale_layout.addWidget(QLabel("Y-Axis Scale:"))
+            self.combo_scale = QComboBox()
+            self.combo_scale.addItems(["SymLog", "Linear"])
+            self.combo_scale.setCurrentIndex(0) # SymLog por defecto
+            scale_layout.addWidget(self.combo_scale)
+            
+            self.lbl_linthresh = QLabel("Linthresh (ps):")
+            self.spin_linthresh = QDoubleSpinBox()
+            self.spin_linthresh.setDecimals(2)
+            self.spin_linthresh.setRange(0.01, 1000.0) # Rango amplio para jugar
+            self.spin_linthresh.setValue(1.0) # Valor por defecto
+            self.spin_linthresh.setSingleStep(0.5)
+            
+            scale_layout.addWidget(self.lbl_linthresh)
+            scale_layout.addWidget(self.spin_linthresh)
+            scale_layout.addStretch()
+            
+            # Conectar a la función que actualiza la gráfica instantáneamente
+            self.combo_scale.currentIndexChanged.connect(self.apply_y_scale)
+            self.spin_linthresh.valueChanged.connect(self.apply_y_scale)
+    
+            # --- Empaquetar todo en el layout de controles ---
+            self.bottom_controls_layout.addLayout(delay_layout)
+            self.bottom_controls_layout.addLayout(wl_layout)
+            self.bottom_controls_layout.addLayout(dial_layout)
+            
+            # Insertamos el nuevo control aquí:
+            self.bottom_controls_layout.addLayout(scale_layout) 
+            
+            self.bottom_controls_layout.addLayout(combo_layout)
+        
+            
+            center_bottom_layout = QHBoxLayout()
+            center_bottom_layout.addStretch() # Resorte izquierdo
+            center_bottom_layout.addLayout(self.bottom_controls_layout)
+            center_bottom_layout.addStretch() # Resorte derecho
+            
+            layout.addLayout(center_bottom_layout)
 
-
-        # --- Layout horizontal principal ---
-        main_layout = QHBoxLayout()
-        
-        # --- Layout vertical para sliders de Delay ---
-        delay_layout = QVBoxLayout()
-        delay_layout.setSpacing(5)
-        
-        # Delay min
-        delay_layout.addWidget(QLabel("Delay min (ps):"))
-        self.xmin_edit = QLineEdit("-1")
-        self.xmin_edit.setFixedWidth(50)
-        delay_layout.addWidget(self.xmin_edit)
-        
-        # Delay max
-        delay_layout.addWidget(QLabel("Delay max (ps):"))
-        self.xmax_edit = QLineEdit("3")
-        self.xmax_edit.setFixedWidth(50)
-        delay_layout.addWidget(self.xmax_edit)
-        
-        # Botón Apply X limits
-        self.btn_apply_xlim = QPushButton("Apply X limits")
-        self.btn_apply_xlim.setFixedWidth(120)
-        self.btn_apply_xlim.clicked.connect(self.apply_x_limits)
-        delay_layout.addWidget(self.btn_apply_xlim)
-        
-        wl_layout = QVBoxLayout()
-        wl_layout.setSpacing(5)
-        
-
-        wl_min_layout = QHBoxLayout()
-        wl_min_label = QLabel("λ min:")
-        self.lbl_min_value = QLabel(str(400)) 
-        self.slider_min = QSlider(Qt.Horizontal)
-        self.slider_min.setMinimum(400)
-        self.slider_min.setMaximum(800)
-        self.slider_min.setValue(500)
-        self.slider_min.valueChanged.connect(self.update_wl_range)
-        wl_min_layout.addWidget(wl_min_label)
-        wl_min_layout.addWidget(self.slider_min)
-        wl_min_layout.addWidget(self.lbl_min_value)
-        wl_layout.addLayout(wl_min_layout)
-        
-        # --- λ max ---
-        wl_max_layout = QHBoxLayout()
-        wl_max_label = QLabel("λ max:")
-        self.lbl_max_value = QLabel(str(800)) 
-        self.slider_max = QSlider(Qt.Horizontal)
-        self.slider_max.setMinimum(400)
-        self.slider_max.setMaximum(800)
-        self.slider_max.setValue(700)
-        self.slider_max.valueChanged.connect(self.update_wl_range)
-        wl_max_layout.addWidget(wl_max_label)
-        wl_max_layout.addWidget(self.slider_max)
-        wl_max_layout.addWidget(self.lbl_max_value)
-        wl_layout.addLayout(wl_max_layout)
-
-
-        dial_layout = QVBoxLayout()
-        self.n_levels = 5
-        self.dial_levels = QDial()
-        self.dial_levels.setRange(2, 100)
-        self.dial_levels.setValue(self.n_levels)
-        self.dial_levels.setNotchesVisible(True)
-        self.dial_levels.setWrapping(False)
-        self.dial_levels.setFixedSize(80, 80)
-        self.dial_levels.valueChanged.connect(self.update_n_levels)
-        self.lbl_dial = QLabel(f"{self.n_levels}")
-        self.lbl_dial.setAlignment(Qt.AlignCenter)
-        dial_layout.addWidget(self.dial_levels, alignment=Qt.AlignCenter)
-        dial_layout.addWidget(self.lbl_dial, alignment=Qt.AlignCenter)
-        
-
-        main_layout.addLayout(delay_layout)
-        main_layout.addSpacing(10)          
-        main_layout.addLayout(wl_layout)
-        main_layout.addSpacing(10)
-        main_layout.addLayout(dial_layout)
-        
-       
-        main_layout.setContentsMargins(5, 0, 5, 0)
-        main_layout.setSpacing(15)  
-                
-        range_container = QWidget()
-        range_container.setLayout(main_layout)
-        range_container.setMaximumWidth(800)  #
-        layout.addWidget(range_container)
-
-        fit_group = QGroupBox("Modelo de ajuste t₀")
-        fit_layout = QHBoxLayout()
-        
-        self.radio_poly = QRadioButton("Polinómico")
-        self.radio_nonlinear = QRadioButton("No lineal")
-        self.radio_nonlinear.setChecked(True) 
-        
-        fit_layout.addWidget(self.radio_poly)
-        fit_layout.addWidget(self.radio_nonlinear)
-        fit_group.setLayout(fit_layout)
-        
-        main_layout.addWidget(fit_group)
-                
-        # --- Botón Switch dinámico (cambia entre FLUPS y TAS) ---
-        self.btn_switch = QPushButton("Switch to TAS")
-        self.btn_switch.setFixedWidth(160)
-        self.btn_switch.setCursor(Qt.PointingHandCursor)
-        self.btn_switch.setStyleSheet("""
-            QPushButton {
-                background-color: #8E24AA;
-                color: white;
-                font-weight: bold;
-                padding: 6px;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background-color: #AB47BC;
-            }
-        """)
-        self.btn_switch.clicked.connect(self.switch_analyzer)
-
-        # Layout inferior alineado a la derecha (una sola vez)
-        bottom_layout = QHBoxLayout()
-        bottom_layout.addStretch()
-        bottom_layout.addWidget(self.btn_switch)
-        layout.addLayout(bottom_layout)
- 
-        # Añadir el botón al layout inferior (alineado a la derecha)
-        bottom_layout = QHBoxLayout()
-        bottom_layout.addStretch()
-        bottom_layout.addWidget(self.btn_switch)
-        layout.addLayout(bottom_layout)
-        # --- fit de colores de los ejes principales y colorbars ---
-        self.ax_map.tick_params(colors="black")
-        self.ax_map.xaxis.label.set_color("black")
-        self.ax_map.yaxis.label.set_color("black")
-        self.ax_map.title.set_color("black")
-        for spine in self.ax_map.spines.values():
-            spine.set_color("black")
-        
-        if self.cbar is not None:
-            self.cbar.ax.yaxis.set_tick_params(color="black", labelcolor="black")
-            self.cbar.ax.yaxis.label.set_color("black")
-            for spine in self.cbar.ax.spines.values():
+            self.bottom_controls_layout.setSpacing(60) 
+           
+            self.bottom_controls_layout.setContentsMargins(60, 10, 60, 0) 
+            
+           
+            layout.addLayout(self.bottom_controls_layout)
+            
+            # Set central widget
+            container = QWidget()
+            container.setLayout(layout)
+            self.setCentralWidget(container)
+            
+            # --- fit de colores de los ejes principales y colorbars ---
+            self.ax_map.tick_params(colors="black")
+            self.ax_map.xaxis.label.set_color("black")
+            self.ax_map.yaxis.label.set_color("black")
+            self.ax_map.title.set_color("black")
+            for spine in self.ax_map.spines.values():
                 spine.set_color("black")
-                
-        for ax in [self.ax_time_small, self.ax_spec_small]:
-            ax.tick_params(colors="black")
-            ax.xaxis.label.set_color("black")
-            ax.yaxis.label.set_color("black")
-            ax.title.set_color("black")
             
-    def switch_analyzer(self):
-        """Cambia entre FLUPSAnalyzer y TASAnalyzer sin cerrar la nueva ventana."""
-        try:
-            target_cls_name = "FLUPSAnalyzer" if isinstance(self, TASAnalyzer) else "TASAnalyzer"
-            
-            if target_cls_name in globals() and callable(globals()[target_cls_name]):
-                TargetCls = globals()[target_cls_name]
-            else:
-                raise NameError(f"{target_cls_name} not found")
-
-            self.new_window = TargetCls()
-            self.new_window.show()
-
-
-            self.close()
-
-        except Exception as e:
-            QMessageBox.critical(self, "Switch error", f"Cannot switch analyzer:\n{e}")
+            if self.cbar is not None:
+                self.cbar.ax.yaxis.set_tick_params(color="black", labelcolor="black")
+                self.cbar.ax.yaxis.label.set_color("black")
+                for spine in self.cbar.ax.spines.values():
+                    spine.set_color("black")
+                    
+            for ax in [self.ax_time_small, self.ax_spec_small]:
+                ax.tick_params(colors="black")
+                ax.xaxis.label.set_color("black")
+                ax.yaxis.label.set_color("black")
+                ax.title.set_color("black")
 
     def on_draw(self, event):
             """Captura el fondo para Blitting con protección anti-recursión."""
@@ -636,7 +642,28 @@ class FLUPSAnalyzer(QMainWindow):
             finally:
 
                 self._is_drawing = False
+    def apply_y_scale(self):
+        """Aplica la escala Y seleccionada y actualiza el gráfico al instante."""
+        is_symlog = self.combo_scale.currentText() == "SymLog"
+       
+        self.lbl_linthresh.setVisible(is_symlog)
+        self.spin_linthresh.setVisible(is_symlog)
         
+        # Si el mapa aún no existe, no hacemos nada
+        if not hasattr(self, 'ax_map') or self.data is None:
+            return
+
+        # Aplicar la escala
+        if is_symlog:
+            # Lee el valor exacto del spinbox para fijar dónde empieza la parte logarítmica
+            self.ax_map.set_yscale("symlog", linthresh=self.spin_linthresh.value())
+            self.ax_map.set_ylabel("Delay (ps) - SymLog")
+        else:
+            self.ax_map.set_yscale("linear")
+            self.ax_map.set_ylabel("Delay (ps) - Linear")
+            
+        # Redibujar solo lo necesario
+        self.canvas.draw_idle()
     def draw_animated_artists(self):
         """Dibuja solo los elementos móviles."""
         # Mapa
@@ -648,7 +675,56 @@ class FLUPSAnalyzer(QMainWindow):
         if self.vline_time_small: self.ax_time_small.draw_artist(self.vline_time_small)
         if self.cut_spec_small: self.ax_spec_small.draw_artist(self.cut_spec_small)
 
+    def eventFilter(self, obj, event):
+            """Intercepta eventos específicos de los widgets observados."""
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                if obj == self.lbl_min_value:
+                    self.prompt_exact_wl_min()
+                    return True # Indicamos que el evento ya ha sido procesado
+                elif obj == self.lbl_max_value:
+                    self.prompt_exact_wl_max()
+                    return True
+            
+            # Dejar que el resto de eventos se procesen de forma normal
+            return super().eventFilter(obj, event)
 
+    def prompt_exact_wl_min(self):
+            """Abre un diálogo para establecer el valor mínimo de λ de forma precisa."""
+            if getattr(self, "WL", None) is None: 
+                return # Evita errores si no hay datos cargados
+                
+            try:
+                current_val = float(self.lbl_min_value.text().replace(" nm", ""))
+            except ValueError:
+                current_val = float(np.min(self.WL))
+            
+            val, ok = QInputDialog.getDouble(
+                self, "Exact Min Wavelength", "Enter wavelength (nm):", 
+                value=current_val, decimals=2, min=np.min(self.WL), max=np.max(self.WL)
+            )
+            
+            if ok:
+                idx = int(np.argmin(np.abs(self.WL - val)))
+                self.slider_min.setValue(idx)
+    
+    def prompt_exact_wl_max(self):
+        """Abre un diálogo para establecer el valor máximo de λ de forma precisa."""
+        if getattr(self, "WL", None) is None: 
+            return
+            
+        try:
+            current_val = float(self.lbl_max_value.text().replace(" nm", ""))
+        except ValueError:
+            current_val = float(np.max(self.WL))
+        
+        val, ok = QInputDialog.getDouble(
+            self, "Exact Max Wavelength", "Enter wavelength (nm):", 
+            value=current_val, decimals=2, min=np.min(self.WL), max=np.max(self.WL)
+        )
+        
+        if ok:
+            idx = int(np.argmin(np.abs(self.WL - val)))
+            self.slider_max.setValue(idx)
     def open_global_fit(self):
         dlg = GlobalFitPanel(self)
         dlg.exec_()
@@ -859,8 +935,8 @@ class FLUPSAnalyzer(QMainWindow):
         self.ax_map.set_xlabel("Wavelength (nm)")
         self.ax_map.set_ylabel("Delay (ps)")
         self.ax_map.set_title("ΔA Map")
-        self.ax_map.set_yscale("symlog")
-    
+        self.apply_y_scale()
+        
         #  Colorbar
         divider = make_axes_locatable(self.ax_map)
         cax = divider.append_axes("right", size="3%", pad=0.02)
@@ -899,7 +975,7 @@ class FLUPSAnalyzer(QMainWindow):
             else:
                 self.pcm = self.ax_map.pcolormesh(WL_plot, self.TD, data_plot.T, shading="auto", cmap="jet")
     
-            self.ax_map.set_yscale("symlog")
+            self.apply_y_scale()
             self.ax_map.set_title("ΔA Map")
             self.ax_map.set_xlabel("Wavelength (nm)")
             self.ax_map.set_ylabel("Delay (ps)")
@@ -1061,7 +1137,7 @@ class FLUPSAnalyzer(QMainWindow):
         self.canvas.draw_idle()
 
     def on_move_map(self, event):
-            """Versión optimizada: usa restore_region y blit en vez de redibujar todo."""
+            
             # Si no hay caché o no estamos en el eje, salir
             if self.bg_cache is None or self.data is None: 
                 return
@@ -1113,10 +1189,11 @@ class FLUPSAnalyzer(QMainWindow):
         w_points = np.array([p['x'] for p in self.clicked_points])
         t0_points = np.array([p['y'] for p in self.clicked_points])
 
-        # Determinar qué modelo usar según los radio buttons
-        if self.radio_poly.isChecked():
+        texto_modelo = self.combo_model.currentText()
+        
+        if texto_modelo == "Polynomial":
             mode = 'poly'
-        elif self.radio_nonlinear.isChecked():
+        elif texto_modelo == "Non linear":
             mode = 'nonlinear'
         else:
             mode = 'auto'
@@ -1146,7 +1223,7 @@ class FLUPSAnalyzer(QMainWindow):
 
         base_dir = os.path.dirname(self.file_path)
         base_name = os.path.splitext(os.path.basename(self.file_path))[0]
-        self.save_dir = os.path.join(base_dir, f"{base_name}_Results")  # 🔹 guardamos como atributo
+        self.save_dir = os.path.join(base_dir, f"{base_name}_Results") 
         os.makedirs(self.save_dir, exist_ok=True)
         
         data_corr = result['corrected']
@@ -1219,7 +1296,7 @@ class FLUPSAnalyzer(QMainWindow):
                 suffix = "(Base/Original)"
     
             # 5. Recalcular el slice visible (Respetando los Sliders)
-            # Esto es crucial para que al cambiar no se resetee el zoom de longitud de onda
+            
             if hasattr(self, 'slider_min') and hasattr(self, 'slider_max'):
                 wl_min_idx = int(self.slider_min.value())
                 wl_max_idx = int(self.slider_max.value())
@@ -1236,9 +1313,7 @@ class FLUPSAnalyzer(QMainWindow):
                 # Fallback por si no hay sliders
                 self.WL_visible = self.WL
                 self.data_visible = source_data
-    
-            # 6. LLAMADA MÁGICA: Usamos el plot_map optimizado
-            # Esto se encargará del Blitting, SymLog, Limites y Eventos automáticamente.
+                
             self.plot_map()
             
             # Actualizamos el título explícitamente para reflejar el estado
@@ -1250,91 +1325,142 @@ class FLUPSAnalyzer(QMainWindow):
     
 class TASAnalyzer(FLUPSAnalyzer):
     def __init__(self):
-        super().__init__()
-        self.setWindowTitle("TAS Analyzer — PyQt5 Edition")
-        self.label_status.setText("TAS mode active")
+                super().__init__()
+                self.setWindowTitle("TAS Analyzer")
+                self.label_status.setText("No file loaded")
+                
+                # --- Datos ---
+                self.medida = None
+                self.solvente = None
+                self.pump_mask = None  # nueva variable para eliminar pump
+                self.TDSol = None
+                self.WLSol = None
+                self.is_TAS_mode = True
+                self.use_discrete_levels = False 
+                
+    
+                self.dial_levels.hide()
+                self.lbl_dial.hide()
+                
+                # --- Inicializar variables para Blitting (optimización) ---
+                self.bg_cache = None
+                self.cid_draw = None
+                self.cid_click = None
+                self.cid_move = None
+                
+                # ===================================================================
+                # SLIDERS Y ETIQUETAS CLICABLES (AM y SF)
+                # ===================================================================
+    
+                # 1. Slider y Etiqueta para Amplitud (AM)
+                self.slider_am = QSlider(Qt.Horizontal)
+                self.slider_am.setMinimumWidth(200)
+                self.slider_am.setMinimum(0)
+                self.slider_am.setMaximum(200)
+                self.slider_am.setValue(100)  # 100% por defecto
+                
+                self.lbl_am_value = QLabel("100 %")
+                self.lbl_am_value.setCursor(Qt.PointingHandCursor)
+                self.lbl_am_value.setToolTip("Haz clic para introducir valor exacto")
+                self.lbl_am_value.installEventFilter(self)
+                
+                self.slider_am.valueChanged.connect(self.on_am_changed)
+                
+                # 2. Slider y Etiqueta para Shift temporal (SF)
+                self.slider_sf = QSlider(Qt.Horizontal)
+                self.slider_sf.setMinimumWidth(200)
+                self.slider_sf.setMinimum(-20000)
+                self.slider_sf.setMaximum(20000)
+                self.slider_sf.setValue(0)
+                
+                self.lbl_sf_value = QLabel("0.000 ps")
+                self.lbl_sf_value.setCursor(Qt.PointingHandCursor)
+                self.lbl_sf_value.setToolTip("Haz clic para introducir valor exacto")
+                self.lbl_sf_value.installEventFilter(self)
+                
+                self.slider_sf.valueChanged.connect(self.on_sf_changed)
+                
+                # ===================================================================
+                # INYECCIÓN DE LAYOUT TAS EN EL CENTRO
+                # ===================================================================
+                
+                tas_extra_layout = QVBoxLayout()
+                tas_extra_layout.setSpacing(5)
         
-        # --- Datos ---
-        self.medida = None
-        self.solvente = None
-        self.pump_mask = None  # nueva variable para eliminar pump
-        self.TDSol = None
-        self.WLSol = None
-        self.is_TAS_mode = True
-        self.use_discrete_levels = False  # Cambia a False si prefieres mapa continuo
-        self.dial_levels.hide()
-        self.lbl_dial.hide()
-        # --- NUEVO: Inicializar variables para Blitting (optimización) ---
-        self.bg_cache = None
-        self.cid_draw = None
-        self.cid_click = None
-        self.cid_move = None
-       # --- Sliders extra para AM (amplitud) y SF (shift temporal) ---
-        self.slider_am = QSlider(Qt.Horizontal)
-        self.slider_am.setMinimum(0)
-        self.slider_am.setMaximum(200)
-        self.slider_am.setValue(100)  # 100% por defecto
-        self.slider_am.valueChanged.connect(self.update_am_sf)
+                # Fila Amplitud
+                amp_row = QHBoxLayout()
+                amp_row.addWidget(QLabel("Amplitude (%):"))
+                amp_row.addWidget(self.slider_am)
+                amp_row.addWidget(self.lbl_am_value) # <--- Añadimos la etiqueta aquí
+                tas_extra_layout.addLayout(amp_row)
         
-        # Slider para shift temporal
-        self.slider_sf = QSlider(Qt.Horizontal)
-        # Aumentamos resolución ×100 → precisión de 0.01 ps
-        self.slider_sf.setMinimum(-20000)
-        self.slider_sf.setMaximum(20000)
-        self.slider_sf.setValue(0)
+                # Fila Shift
+                shift_row = QHBoxLayout()
+                shift_row.addWidget(QLabel("Shift (ps):"))
+                shift_row.addWidget(self.slider_sf)
+                shift_row.addWidget(self.lbl_sf_value) # <--- Añadimos la etiqueta aquí
+                tas_extra_layout.addLayout(shift_row)
+                
+                tas_extra_layout.addStretch() # Empuja el bloque hacia arriba para alinear con el resto
         
-        # Spinbox para shift temporal (permite decimales)
-        self.spin_sf = QDoubleSpinBox()
-        self.spin_sf.setDecimals(3)
-        self.spin_sf.setRange(-200.0, 200.0)  # en ps
-        self.spin_sf.setSingleStep(0.01)
-        self.spin_sf.setValue(0.0)
+                # Inyectamos este bloque en el layout principal inferior (índice 2 está entre WL y el Combo)
+                if hasattr(self, 'bottom_controls_layout'):
+                    self.bottom_controls_layout.insertLayout(2, tas_extra_layout)
+         
+                # === Checkbox para conversión automática de .dat  --> .csv ===
+                self.chk_convert_dat = QCheckBox("Convert .dat → .csv (IMDEA DATA)")
+                self.chk_convert_dat.setChecked(True)  # activado por defecto
         
-        # Sincronizar slider y spinbox
-        def sync_slider_to_spin(value):
-            # slider tiene resolución ×100 → divide entre 100
-            self.spin_sf.blockSignals(True)
-            self.spin_sf.setValue(value / 100.0)
-            self.spin_sf.blockSignals(False)
-            self.update_am_sf()
-        
-        def sync_spin_to_slider(value):
-            self.slider_sf.blockSignals(True)
-            self.slider_sf.setValue(int(value * 100))
-            self.slider_sf.blockSignals(False)
-            self.update_am_sf()
-        
-        self.slider_sf.valueChanged.connect(sync_slider_to_spin)
-        self.spin_sf.valueChanged.connect(sync_spin_to_slider)
-        
-        # Layout
-        
-        slider_layout_extra = QHBoxLayout()
-        slider_layout_extra.addWidget(QLabel("Amplitude (%)"))
-        slider_layout_extra.addWidget(self.slider_am)
-        slider_layout_extra.addWidget(QLabel("Shift (ps)"))
-        slider_layout_extra.addWidget(self.slider_sf)
-        slider_layout_extra.addWidget(self.spin_sf)
- 
- 
-        # --- Modificar el botón switch (ya existe del padre) ---
-        self.btn_switch.setText("Switch to FLUPS")
-        # Añadir sliders adicionales al layout principal
-        self.centralWidget().layout().addLayout(slider_layout_extra)
-        # Desconectamos el slot anterior para evitar doble conexión
-        try:
-            self.btn_switch.clicked.disconnect()
-        except TypeError:
-            pass
-        
-        # Conectamos al nuevo método
-        self.btn_switch.clicked.connect(self.switch_analyzer)
-        # === Checkbox para conversión automática de .dat → .csv ===
-        self.chk_convert_dat = QCheckBox("Convert .dat → .csv (IMDEA DATA)")
-        self.chk_convert_dat.setChecked(True)  # activado por defecto
+                # Lo centramos y lo ponemos al fondo del todo
+                chk_layout = QHBoxLayout()
+                chk_layout.addStretch()
+                chk_layout.addWidget(self.chk_convert_dat)
+                chk_layout.addStretch()
+                
+                self.centralWidget().layout().addLayout(chk_layout)
+                
+    def on_am_changed(self, value):
+        """Actualiza el texto de amplitud y recalcula el mapa."""
+        self.lbl_am_value.setText(f"{value} %")
+        self.update_am_sf()
 
-        # Insertarlo en el layout arriba o donde prefieras
-        self.centralWidget().layout().addWidget(self.chk_convert_dat)
+    def on_sf_changed(self, value):
+        """Actualiza el texto del shift y recalcula el mapa."""
+        self.lbl_sf_value.setText(f"{value / 100.0:.3f} ps")
+        self.update_am_sf()
+
+    def prompt_exact_am(self):
+        """Diálogo para introducir la amplitud exacta."""
+        current_val = self.slider_am.value()
+        val, ok = QInputDialog.getDouble(
+            self, "Exact Amplitude", "Enter amplitude (%):", 
+            value=current_val, decimals=0, min=0, max=200
+        )
+        if ok:
+            self.slider_am.setValue(int(val))
+
+    def prompt_exact_sf(self):
+        """Diálogo para introducir el shift exacto."""
+        current_val = self.slider_sf.value() / 100.0
+        val, ok = QInputDialog.getDouble(
+            self, "Exact Shift", "Enter shift (ps):", 
+            value=current_val, decimals=3, min=-200.0, max=200.0
+        )
+        if ok:
+            self.slider_sf.setValue(int(val * 100))
+
+    def eventFilter(self, obj, event):
+        """Intercepta los clics en las etiquetas de Amplitude y Shift."""
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if obj == getattr(self, "lbl_am_value", None):
+                self.prompt_exact_am()
+                return True
+            elif obj == getattr(self, "lbl_sf_value", None):
+                self.prompt_exact_sf()
+                return True
+                
+        # Pasamos el resto de eventos (como los de las WL) a la clase padre
+        return super().eventFilter(obj, event)
     def switch_analyzer(self):
         """Cambia entre FLUPSAnalyzer y TASAnalyzer sin cerrar la nueva ventana."""
         try:
@@ -1457,7 +1583,7 @@ class TASAnalyzer(FLUPSAnalyzer):
         
         temp_TD = raw[0, 1:]       # delay (ps) temporal
         temp_WL = raw[1:, 0]       # wavelength (nm) temporal
-        temp_medida = raw[1:, 1:]  # ΔA(λ, t) temporal
+        temp_medida = raw[1:, 1:]  # Matriz 2D intensidad
         temp_medida[np.isnan(temp_medida)] = 0
         
         # --- ELIMINAR DUPLICADOS Y ORDENAR (MEDIDA) ---
@@ -1494,7 +1620,6 @@ class TASAnalyzer(FLUPSAnalyzer):
         self.TDSol, idx_td_sol = np.unique(temp_TDSol, return_index=True)
         self.solvente = temp_solvente[idx_wl_sol, :][:, idx_td_sol]
         
-        # --- Configurar sliders de λ ---
         nwl = len(self.WL)
         self.slider_min.setMinimum(0)
         self.slider_min.setMaximum(nwl - 1)
@@ -1506,7 +1631,7 @@ class TASAnalyzer(FLUPSAnalyzer):
         self.idx_min = 0
         self.idx_max = nwl - 1
         
-        # --- CONEXIONES (ESTO ES LO CRUCIAL) ---
+        
         try: self.slider_min.valueChanged.disconnect()
         except: pass
         try: self.slider_max.valueChanged.disconnect()
@@ -1521,7 +1646,6 @@ class TASAnalyzer(FLUPSAnalyzer):
         # --- Definir ruta base para compatibilidad con FLUPSAnalyzer ---
         self.file_path = file_path_medida
         
-        # --- Asegurar que los botones t₀ funcionan ---
         if hasattr(self, "btn_plot"):
             self.btn_plot.setEnabled(True)
         if hasattr(self, "btn_select"):
@@ -1557,8 +1681,6 @@ class TASAnalyzer(FLUPSAnalyzer):
         # --- Guardar datos corregidos globalmente ---
         self.result_fit = result
         self.data_corrected = result['corrected']
-        # ⚠️ LÍNEA ELIMINADA: La línea 'self.data = np.copy(self.data_corrected)' se elimina.
-        # Ahora self.data_corrected mantiene los datos finales y self.data los base.
         
         self.plot_map(show_fit=True)
         self.btn_show_corr.setEnabled(True)
@@ -1627,9 +1749,12 @@ class TASAnalyzer(FLUPSAnalyzer):
             self.idx_min = s_min
             self.idx_max = s_max
     
-            # 4. Actualizar etiquetas de texto (Opcional, si tienes labels)
-            # self.lbl_min_val.setText(f"{self.WL[s_min]:.1f} nm")
-            # self.lbl_max_val.setText(f"{self.WL[s_max]:.1f} nm")
+        # 4. Actualizar etiquetas de texto 
+            try:
+                self.lbl_min_value.setText(f"{self.WL[s_min]:.1f} nm")
+                self.lbl_max_value.setText(f"{self.WL[s_max]:.1f} nm")
+            except Exception:
+                pass
     
             # 5. Redibujar
             self.plot_map()
@@ -1646,7 +1771,7 @@ class TASAnalyzer(FLUPSAnalyzer):
         self._updating_am_sf = True
     
         am = self.slider_am.value() / 100.0
-        sf = self.spin_sf.value()
+        sf = self.slider_sf.value() / 100.0
         interpSol = RegularGridInterpolator(
             (self.WLSol, self.TDSol),
             self.solvente,
@@ -1749,7 +1874,7 @@ class TASAnalyzer(FLUPSAnalyzer):
                 shading="auto", cmap="jet",
             )
             
-            self.ax_map.set_yscale('symlog', linthresh=1.0)
+            self.apply_y_scale()
             self.ax_map.set_xlabel("Wavelength (nm)")
             self.ax_map.set_ylabel("Delay (ps) - SymLog")
             
@@ -1762,7 +1887,7 @@ class TASAnalyzer(FLUPSAnalyzer):
             divider = make_axes_locatable(self.ax_map)
             cax = divider.append_axes("right", size="5%", pad=0.05)
             self.cbar = self.figure.colorbar(self.pcm, cax=cax, label="ΔA")
-            self.ax_map.set_yscale('symlog', linthresh=1.0)
+            self.apply_y_scale()
     
             if saved_x is not None and saved_y is not None:
                 # np.clip evita que el cursor se quede fuera de la pantalla si recortas demasiado con el slider
@@ -1857,8 +1982,7 @@ class TASAnalyzer(FLUPSAnalyzer):
                 pass
     def update_small_cuts(self, x, y, WL_sel=None, data_sel=None):
             """Actualización completa (lenta) para clicks o cambios de slider."""
-            # Podemos reutilizar la lógica de movimiento o forzar un draw completo
-            # Para mantener coherencia visual tras un click:
+  
             self.on_move_map(type('Event', (object,), {'xdata': x, 'ydata': y, 'inaxes': self.ax_map})())
             self.canvas.draw_idle() # Asegura que todo quede fijo
 
@@ -1887,17 +2011,12 @@ class TASAnalyzer(FLUPSAnalyzer):
                 self.canvas.restore_region(self.bg_cache)
     
             # 5. Actualizar datos de las líneas (sin redibujar ejes)
-            # --- Mapa ---
+        
             self.vline_map.set_xdata([x, x])
             self.hline_map.set_ydata([y, y])
             self.marker_map.set_data([x], [y])
             
             # --- Datos para cortes ---
-            # Búsqueda rápida de índices (usando WL y TD recortados si fuera necesario, 
-            # pero para índices globales usamos self.WL/self.TD originales con cuidado)
-            
-            # Nota: Si usas recorte en plot_map, aquí debes tener cuidado. 
-            # Para simplificar y evitar errores de índice, buscaremos en los arrays globales
             idx_wl = np.abs(self.WL - x).argmin()
             idx_td = np.abs(self.TD - y).argmin()
             
@@ -1917,7 +2036,7 @@ class TASAnalyzer(FLUPSAnalyzer):
             # 6. Dibujar los elementos animados
             self.draw_animated_artists()
     
-            # 7. Volcar a pantalla (Blit)
+            # 7. Blit
             self.canvas.blit(self.figure.bbox)
             
             # Barra de estado
@@ -1928,23 +2047,25 @@ class TASAnalyzer(FLUPSAnalyzer):
 if __name__ == "__main__":
     # 1. Crear la aplicación
     app = QApplication(sys.argv)
+    
+    
+    app.setStyle("Fusion") 
+    
+    # 2. Aplicar hoja de estilos a toda la aplicación
+    app.setStyleSheet(STYLESHEET) 
 
-    # 2. Forzar a Windows a reconocer el icono en la barra de tareas
-    # (Sin esto, a veces sale el icono de Python aunque pongas el tuyo)
+    # 3. Forzar a Windows a reconocer el icono
     import ctypes
-    myappid = 'spectroscopy.analyzer.v1' # Un ID único para tu app
+    myappid = 'spectroscopy.analyzer.v1' 
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
-    # 3. Configurar el Icono Global
-    # Asegúrate de que "tu_icono.ico" esté en la misma carpeta que este script
+    # 4. Configurar el Icono Global
     icon_path = os.path.join(os.path.dirname(__file__), "icon.ico")
     
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
-    else:
-        print(f"Advertencia: No se encontró el icono en {icon_path}")
 
-    # 4. Lanzar la ventana principal
+    # 5. Lanzar la ventana principal
     window = MainApp()
     window.show()
 

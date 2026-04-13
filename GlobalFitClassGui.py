@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QProgressBar, QTableWidget, QTableWidgetItem,
     QHeaderView, QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, 
     QFormLayout, QWidget, QTabWidget, QApplication, QInputDialog,
-    QCheckBox,QLineEdit
+    QCheckBox,QLineEdit,QListView
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
@@ -15,54 +15,54 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
 import fit
+from matplotlib.widgets import Cursor
 # import core_analysis # Uncomment if strictly needed, usually accessed via fit or parent
 
 # --- 1. ESTILO NEÓN COMPACTO ---
 BUTTON_STYLE = """
     QPushButton {
-        background-color: #1e1e1e;
-        color: #00bfff;
-        border: 2px solid #00bfff;
-        border-radius: 8px;          /* Menos redondeado */
-        padding: 4px 10px;           /* MUCHO MENOS Relleno (antes 8px 16px) */
+        background-color: #6CB66C;   /* Verde corporativo */
+        color: white;                /* Texto en blanco para buen contraste */
+        border: 1px solid #549A54;   /* Borde verde un poco más oscuro */
+        border-radius: 4px;          /* Curvatura suave */
+        padding: 6px 12px;           
         font-weight: bold;
         font-family: "Segoe UI";
-        font-size: 9pt;              /* Fuente más pequeña (antes 11pt) */
+        font-size: 9pt;              
     }
     QPushButton:hover {
-        background-color: #00bfff;
-        color: #000000;
-        border: 2px solid #ffffff;
+        background-color: #5CA55C;   /* Se oscurece un poco al pasar el ratón */
+        color: white;
+        border: 1px solid #468446;   /* El borde también se oscurece */
     }
     QPushButton:pressed {
-        background-color: #008cb3;
-        border: 2px solid #008cb3;
+        background-color: #4A8C4A;   /* Verde oscuro al hacer clic */
+        border: 1px solid #4A8C4A;
         color: white;
-        padding-top: 6px;
-        padding-left: 12px;
+        padding-top: 7px;            /* Efecto de hundirse al pulsar */
+        padding-left: 13px;
     }
     QPushButton:disabled {
-        border: 2px solid #444;
-        color: #666;
-        background-color: #2a2a2a;
+        background-color: #A0C8A0;   /* Verde pálido "apagado" para botones inactivos */
+        border: 1px solid #A0C8A0;
+        color: #F0F0F0;              /* Texto ligeramente difuminado */
     }
 """
 
 # --- 2. TEMA OSCURO GENERAL COMPACTO ---
 DARK_THEME_STYLE = """
     QDialog, QWidget {
-        background-color: #1e1e1e;
-        color: #f0f0f0;
+        color: #222222;            /* Texto oscuro */
         font-family: "Segoe UI";
-        font-size: 8pt;              /* Fuente general más pequeña (antes 10pt) */
+        font-size: 8pt;              
     }
     QGroupBox {
-        border: 1px solid #00bfff;
+        border: 1px solid #C0C0C0; /* Borde gris suave en lugar de cyan */
         border-radius: 5px;
-        margin-top: 8px;             /* Menos margen arriba */
+        margin-top: 8px;             
         padding-top: 10px;
         font-weight: bold;
-        color: #00bfff;
+        color: #000000;            
     }
     QGroupBox::title {
         subcontrol-origin: margin;
@@ -70,34 +70,37 @@ DARK_THEME_STYLE = """
         padding: 0 3px;
     }
     QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit {
-        background-color: #2d2d2d;
-        border: 1px solid #555;
+        background-color: #FFFFFF; /* Fondo blanco */
+        border: 1px solid #C0C0C0;
         border-radius: 4px;
-        color: white;
-        padding: 2px;                /* Menos relleno interno */
-        min-height: 18px;            /* Altura mínima forzada pequeña */
+        color: #000000;            /* Texto negro */
+        padding: 2px;                
+        min-height: 18px;            
     }
-    QSpinBox:focus, QComboBox:focus {
-        border: 1px solid #00bfff;
+    QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QLineEdit:focus {
+        border: 1px solid #0078D7; /* Borde azul de Windows al hacer clic */
     }
     QComboBox QAbstractItemView {
-        background-color: #2d2d2d;
-        color: white;
-        selection-background-color: #00bfff;
-        selection-color: black;
+        background-color: #FFFFFF;
+        color: #000000;
+        selection-background-color: #E5F1FB; /* Fondo azul clarito al pasar el ratón */
+        selection-color: #000000;
+        border: 1px solid #C0C0C0;
     }
-    QLabel { color: #f0f0f0; }
-    QCheckBox { color: #f0f0f0; }
+    QLabel { color: #222222; }
+    QCheckBox { color: #222222; }
     
     QProgressBar {
-        border: 1px solid #555;
+        border: 1px solid #C0C0C0;
         border-radius: 5px;
         text-align: center;
-        color: white;
-        max-height: 15px;            /* Barra de progreso más fina */
+        background-color: #FFFFFF; /* Fondo de la barra en blanco */
+        color: #222222;
+        max-height: 15px;            
     }
     QProgressBar::chunk {
-        background-color: #00bfff;
+        background-color: #6CB66C; /* La barra que se llena ahora es verde corporativo */
+        border-radius: 3px;
         width: 10px;
         margin: 0.5px;
     }
@@ -188,6 +191,7 @@ class GlobalFitPanel(QDialog):
     def __init__(self, parent=None):
             super().__init__(parent)
             self.setWindowTitle("Global Fit Analysis")
+            self.setWindowFlags(self.windowFlags() | Qt.WindowMinMaxButtonsHint)
             
             screen = QApplication.primaryScreen()
             screen_geom = screen.availableGeometry() # Tamaño útil (sin barra tareas)
@@ -205,7 +209,6 @@ class GlobalFitPanel(QDialog):
             self.setStyleSheet(DARK_THEME_STYLE + BUTTON_STYLE) # Apply Dark Theme
 
             # --- 1. Variables de Datos ---
-           
             self.parent_app = parent
             self.data_c = None   
             self.data_raw = None 
@@ -309,7 +312,7 @@ class GlobalFitPanel(QDialog):
         # Baseline
         self.spin_bl = QSpinBox()
         self.spin_bl.setRange(0, 500)
-        self.spin_bl.setValue(5)
+        self.spin_bl.setValue(0)
         self.spin_bl.valueChanged.connect(self.apply_baseline_correction) 
         form_prep.addRow("Baseline Pts:", self.spin_bl)
 
@@ -351,7 +354,7 @@ class GlobalFitPanel(QDialog):
         form_prep.addRow(self.chk_zero_neg)
         
         # Botón Preview
-        self.btn_preview = QPushButton("Apply & Preview")
+        self.btn_preview = QPushButton("Apply and Preview")
         self.btn_preview.clicked.connect(self._preview_data_processing) 
         form_prep.addRow(self.btn_preview)
 
@@ -374,6 +377,8 @@ class GlobalFitPanel(QDialog):
         form_vis.addRow(self.btn_plot_3d)
         
         self.combo_scale = QComboBox()
+        self.combo_scale.setView(QListView())
+        self.combo_scale.setMaxVisibleItems(10)
         self.combo_scale.addItems(["Linear", "SymLog"])
         self.combo_scale.currentTextChanged.connect(self._on_scale_changed) # Conectamos función
         form_vis.addRow("Time Axis Scale:", self.combo_scale)
@@ -384,15 +389,19 @@ class GlobalFitPanel(QDialog):
         self.spin_numExp = QSpinBox()
         self.spin_numExp.setRange(1, 6)
         self.spin_numExp.setValue(2)
-        form_model.addRow("Exponentials:", self.spin_numExp)
+        form_model.addRow("Components:", self.spin_numExp)
 
         # Tipo de Modelo
         self.combo_model = QComboBox()
+        self.combo_model.setView(QListView())
+        self.combo_model.setMaxVisibleItems(10)
         self.combo_model.addItems(["Parallel (DAS)", "Sequential (SAS)","Damped Oscillation"])
         form_model.addRow("Model Type:", self.combo_model)
 
         # Técnica
         self.combo_tech = QComboBox()
+        self.combo_tech.setView(QListView())
+        self.combo_tech.setMaxVisibleItems(10)
         self.combo_tech.addItems(["FLUPS", "TAS", "TCSPC"])
         form_model.addRow("Technique:", self.combo_tech)
 
@@ -409,7 +418,7 @@ class GlobalFitPanel(QDialog):
 
         # --- Botones Finales ---
         self.btn_run = QPushButton("RUN FIT")
-        self.btn_preview = QPushButton("Apply & Preview")
+        self.btn_preview = QPushButton("Apply and Preview")
         self.btn_run.setFixedHeight(40)  
         self.btn_run.setEnabled(False)
         self.btn_run.clicked.connect(self.run_fit_pipeline) 
@@ -424,7 +433,7 @@ class GlobalFitPanel(QDialog):
         
     def run_svd(self):
         if self.data_c is None:
-            QMessageBox.warning(self, "Error", "Carga y procesa datos primero (Apply & Preview).")
+            QMessageBox.warning(self, "Error", "Carga y procesa datos primero (Apply and Preview).")
             return
     
         # 1. Ejecutar SVD matemático
@@ -495,6 +504,9 @@ class GlobalFitPanel(QDialog):
             """Construye los Tabs y gráficos del panel derecho."""
             l = self.right_layout
             
+            self.lbl_cursor = QLabel("Cursor: Out of the 2D map")
+            self.lbl_cursor.setStyleSheet("font-weight: bold; color: #0078D7; font-size: 10pt;")
+            l.addWidget(self.lbl_cursor)            
             # Tabs
             self.tabs = QTabWidget()
             
@@ -935,9 +947,42 @@ class GlobalFitPanel(QDialog):
                 self.cbar_exp = self.canvas_exp.figure.colorbar(self.pcm_exp, cax=cax, label='$\Delta A$ / -')
                 
                 self.canvas_exp.draw_idle()
+                # Crea una cruz blanca discontinua muy rápida (useblit=True)
+                self.cursor_exp = Cursor(self.ax_exp, useblit=True, color='white', linewidth=1, linestyle='--')
+                
+                # Conectamos el movimiento del ratón a una nueva función
+                if not hasattr(self, 'cid_mouse_move'):
+                    self.cid_mouse_move = self.canvas_exp.mpl_connect('motion_notify_event', self.on_mouse_move)
                 
             except Exception as e:
                 print(f"Plotting error: {e}")
+    def on_mouse_move(self, event):
+        """Actualiza la etiqueta de texto con las coordenadas del ratón en el mapa."""
+        # Comprobar que el ratón está dentro del gráfico principal
+        if event.inaxes == self.ax_exp:
+            x = event.xdata
+            y = event.ydata
+            
+            if x is None or y is None:
+                return
+                
+            # Intentar leer el valor exacto de ΔA
+            if self.data_c is not None and hasattr(self, '_wl_proc') and hasattr(self, '_td_proc'):
+                try:
+                    # Buscamos el índice más cercano a donde está el ratón
+                    idx_wl = (np.abs(self._wl_proc - x)).argmin()
+                    idx_td = (np.abs(self._td_proc - y)).argmin()
+                    z_val = self.data_c[idx_wl, idx_td]
+                    
+                    self.lbl_cursor.setText(f"Cursor: λ = {x:.1f} nm  |  Delay = {y:.3f} ps  |  ΔA = {z_val:.3e}")
+                except Exception:
+                    # Por si hay algún desajuste temporal en los arrays
+                    self.lbl_cursor.setText(f"Cursor: λ = {x:.1f} nm  |  Delay = {y:.3f} ps")
+            else:
+                self.lbl_cursor.setText(f"Cursor: λ = {x:.1f} nm  |  Delay = {y:.3f} ps")
+        else:
+            self.lbl_cursor.setText("Cursor: Out of the 2D MAP")
+            
     def _update_fit_canvas(self):
             """Pinta la reconstrucción con escala dinámica y soporte para Log/Linear."""
             if self.fit_fitres is None: return

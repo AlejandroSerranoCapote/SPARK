@@ -154,6 +154,7 @@ def apply_t0_correction_nonlinear(popt, WL, TD, data):
         else:
             corrected[i, :] = data[i, :]
     return corrected, t0_lambda
+
 def fit_t0(w_points, t0_points, WL, TD, data, min_points_nonlinear=4, mode='auto'):
     """
     Ajusta t0 a partir de puntos (w_points,t0_points) seleccionados por el usuario.

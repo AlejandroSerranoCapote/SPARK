@@ -9,27 +9,89 @@ from PyQt5.QtCore import Qt
 
 BUTTON_STYLE = """
     QPushButton {
-        background-color: #1e1e1e;
-        color: #00bfff;
-        border: 2px solid #00bfff;
-        border-radius: 8px;
-        padding: 4px 10px;
+        background-color: #6CB66C;   /* Verde corporativo */
+        color: white;                /* Texto en blanco para buen contraste */
+        border: 1px solid #549A54;   /* Borde verde un poco más oscuro */
+        border-radius: 4px;          /* Curvatura suave */
+        padding: 6px 12px;           
         font-weight: bold;
         font-family: "Segoe UI";
-        font-size: 9pt;
+        font-size: 9pt;              
     }
-    QPushButton:hover { background-color: #00bfff; color: #000000; border: 2px solid #ffffff; }
-    QPushButton:disabled { border: 2px solid #444; color: #666; background-color: #2a2a2a; }
+    QPushButton:hover {
+        background-color: #5CA55C;   /* Se oscurece un poco al pasar el ratón */
+        color: white;
+        border: 1px solid #468446;   /* El borde también se oscurece */
+    }
+    QPushButton:pressed {
+        background-color: #4A8C4A;   /* Verde oscuro al hacer clic */
+        border: 1px solid #4A8C4A;
+        color: white;
+        padding-top: 7px;            /* Efecto de hundirse al pulsar */
+        padding-left: 13px;
+    }
+    QPushButton:disabled {
+        background-color: #A0C8A0;   /* Verde pálido "apagado" para botones inactivos */
+        border: 1px solid #A0C8A0;
+        color: #F0F0F0;              /* Texto ligeramente difuminado */
+    }
 """
 
-YELLOW_BUTTON_STYLE = BUTTON_STYLE.replace("#00bfff", "#f1c40f")
-RESET_BUTTON_STYLE = BUTTON_STYLE.replace("#00bfff", "#ff4444")
 
 DARK_THEME_STYLE = """
-    QMainWindow, QWidget { background-color: #1e1e1e; color: #f0f0f0; font-family: "Segoe UI"; font-size: 8pt; }
-    QGroupBox { border: 1px solid #00bfff; border-radius: 5px; margin-top: 12px; padding-top: 10px; font-weight: bold; color: #00bfff; }
-    QLineEdit, QListWidget { background-color: #2d2d2d; border: 1px solid #555; border-radius: 4px; color: white; padding: 2px; }
-    QLabel { font-weight: normal; }
+    QDialog, QWidget {
+        color: #222222;            /* Texto oscuro */
+        font-family: "Segoe UI";
+        font-size: 8pt;              
+    }
+    QGroupBox {
+        border: 1px solid #C0C0C0; /* Borde gris suave en lugar de cyan */
+        border-radius: 5px;
+        margin-top: 8px;             
+        padding-top: 10px;
+        font-weight: bold;
+        color: #000000;            
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        subcontrol-position: top left;
+        padding: 0 3px;
+    }
+    QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit {
+        background-color: #FFFFFF; /* Fondo blanco */
+        border: 1px solid #C0C0C0;
+        border-radius: 4px;
+        color: #000000;            /* Texto negro */
+        padding: 2px;                
+        min-height: 18px;            
+    }
+    QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QLineEdit:focus {
+        border: 1px solid #0078D7; /* Borde azul de Windows al hacer clic */
+    }
+    QComboBox QAbstractItemView {
+        background-color: #FFFFFF;
+        color: #000000;
+        selection-background-color: #E5F1FB; /* Fondo azul clarito al pasar el ratón */
+        selection-color: #000000;
+        border: 1px solid #C0C0C0;
+    }
+    QLabel { color: #222222; }
+    QCheckBox { color: #222222; }
+    
+    QProgressBar {
+        border: 1px solid #C0C0C0;
+        border-radius: 5px;
+        text-align: center;
+        background-color: #FFFFFF; /* Fondo de la barra en blanco */
+        color: #222222;
+        max-height: 15px;            
+    }
+    QProgressBar::chunk {
+        background-color: #6CB66C; /* La barra que se llena ahora es verde corporativo */
+        border-radius: 3px;
+        width: 10px;
+        margin: 0.5px;
+    }
 """
 
 class XFELProcessor:
@@ -93,7 +155,7 @@ class AppWindow(QMainWindow):
         layout = QVBoxLayout(main_widget)
 
         # --- CONFIGURACIÓN ---
-        config_group = QGroupBox("MAPPING & SCALE CONFIGURATION (In .npy)")
+        config_group = QGroupBox("MAPPING AND SCALE CONFIGURATION (In .npy)")
         grid = QGridLayout()
         
         self.key_time = QLineEdit("Delay_fs_TT")
@@ -142,7 +204,6 @@ class AppWindow(QMainWindow):
         btn_f.clicked.connect(self.load_files)
         
         btn_check = QPushButton("CHECK UNITS")
-        btn_check.setStyleSheet(YELLOW_BUTTON_STYLE)
         btn_check.clicked.connect(self.check_units)
         
         f_lay.addWidget(btn_f)
@@ -168,7 +229,6 @@ class AppWindow(QMainWindow):
         self.btn_save.clicked.connect(self.save)
 
         self.btn_reset = QPushButton("RESET")
-        self.btn_reset.setStyleSheet(RESET_BUTTON_STYLE)
         self.btn_reset.clicked.connect(self.reset_app)
 
         act_lay.addWidget(self.btn_run)
@@ -255,7 +315,4 @@ class AppWindow(QMainWindow):
             np.save(path, {'data_c': self.m.T, 'WL': self.wl, 'TD': self.td})
             QMessageBox.information(self, "Done", "Saved successfully.")
 
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    ex = AppWindow(); ex.show()
-    sys.exit(app.exec_())
+
