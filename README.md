@@ -123,18 +123,21 @@ $$IRF(t) = \frac{1}{w \sqrt{\pi}} \exp\left( -\left( \frac{t - t_0}{w} \right)^2
 ##  Screenshots
 
 > *GUI FLUPS*
-<img width="1394" height="932" alt="Foto1" src="https://github.com/user-attachments/assets/ab6397c5-5751-4c59-858c-83ba9da74b67" />
+<img width="1222" height="803" alt="FLUPS" src="https://github.com/user-attachments/assets/0f236f57-9c5a-4175-ae8d-a91445405cde" />
 
 > *GUI TAS*
-<img width="1381" height="925" alt="image" src="https://github.com/user-attachments/assets/fb28d525-57a1-464f-994e-8829048f7ac9" />
+<img width="1434" height="854" alt="TAS" src="https://github.com/user-attachments/assets/5bab3bd4-0538-47dc-9a4c-04a55b598711" />
 
 > *GUI Global Fit*
-<img width="1143" height="791" alt="GLOBALfitimage" src="https://github.com/user-attachments/assets/c0ae8e3f-294e-4242-ae37-2490c1787856" />
+<img width="1147" height="852" alt="GlobalFit" src="https://github.com/user-attachments/assets/dd5baf5c-d4aa-4eb6-8e9a-182a80ec4534" />
 
-> *Decay Associated Spectra*
-<img width="788" height="666" alt="image" src="https://github.com/user-attachments/assets/b84d6776-b94d-4424-9ddf-70cdac77e1dc" />
+> *SVD Analysis*
+<img width="1147" height="852" alt="SVD" src="https://github.com/user-attachments/assets/aef56289-bdb3-4c4b-a9a6-0de117d18927" />
+
+> *Species Associated Spectra*
+<img width="798" height="668" alt="SAS" src="https://github.com/user-attachments/assets/73cec536-e7a8-4b1e-8272-546a7e724cf7" />
+
 
 > *Kinetics Fit*
-<img width="891" height="464" alt="image" src="https://github.com/user-attachments/assets/28caddd6-b46c-4981-b36c-5d3dd7228ea0" />
-
+<img width="1196" height="564" alt="FitKinetcis" src="https://github.com/user-attachments/assets/5551248f-9a3c-47bf-9295-39d83136a019" />
 
