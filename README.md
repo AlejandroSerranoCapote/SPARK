@@ -122,6 +122,9 @@ $$IRF(t) = \frac{1}{w \sqrt{\pi}} \exp\left( -\left( \frac{t - t_0}{w} \right)^2
 
 ##  Screenshots
 
+> *MAIN MENU*
+<img width="796" height="542" alt="Portada" src="https://github.com/user-attachments/assets/2af421f4-574f-4fa5-9501-6ecf5bd9db29" />
+
 > *GUI FLUPS*
 <img width="1222" height="803" alt="FLUPS" src="https://github.com/user-attachments/assets/0f236f57-9c5a-4175-ae8d-a91445405cde" />
 
