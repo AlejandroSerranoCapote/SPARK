@@ -6,7 +6,7 @@
 
 **Ultrafast Spectroscopy Analyzer** is a comprehensive, open-source software suite designed for the advanced processing and analysis of ultrafast spectroscopy data. It provides an intuitive graphical environment to transform raw experimental data into publication-quality results.
 
-Read the docs: https://ultrafast-spectroscopy-analyzer.readthedocs.io/en/latest/index.html#
+Read the docs: https://ultrafast-spectroscopy-analyzer.readthedocs.io/en/latest/index.html#  (*Work in progress*)
 
 ---
 > **Install the required dependencies** (run this command in the folder containing the script):
