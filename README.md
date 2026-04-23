@@ -20,7 +20,7 @@ Read the docs: https://ultrafast-spectroscopy-analyzer.readthedocs.io/en/latest/
 > 
 >  **Create a Standalone Executable (.exe) (Run by typing in your terminal inside the script folder)**:
 > ```bash
-> pyinstaller --onefile --noconsole --icon=icon.ico --exclude-module PyQt6 "Ultrafast Spectroscopy Analyzer.py"
+> pyinstaller --onefile --noconsole --icon=icon.ico --exclude-module PyQt6 "UltrafastSpectroscopyAnalyzer.py"
 > ```
 
 ---
