@@ -3,6 +3,7 @@ import numpy as np
 import os
 from PyQt5.QtWidgets import QFileDialog
 from scipy import special as _special
+from scipy.linalg import expm
 
 def load_npy(parent=None, normalize_per_wl=True):
     """
@@ -21,7 +22,8 @@ def load_npy(parent=None, normalize_per_wl=True):
             A tuple containing:
             - data_c (numpy.ndarray): Data matrix.
             - TD (numpy.ndarray): Time delay vector.
-            - WL (numpy.ndarray): Wavelength vector.
+            - WL (numpy.ndarray): Wavele
+            ngth vector.
             - base_dir (str): Directory of the selected file.
     
         Raises
@@ -41,6 +43,8 @@ def load_npy(parent=None, normalize_per_wl=True):
     base_dir = os.path.dirname(file_path)
     
     return data_c, TD, WL, base_dir
+
+
 
 def crop_spectrum(data_c, WL, WLmin, WLmax):
     """
@@ -466,3 +470,6 @@ def eval_oscillation_model(x, t, numExp, numWL, t0_choice_str):
     F = all_bases @ all_amps
     
     return F
+
+
+
