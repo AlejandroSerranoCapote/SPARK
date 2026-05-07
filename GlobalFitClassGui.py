@@ -1276,7 +1276,7 @@ class GlobalFitPanel(QDialog):
             # Labeling logic for standard (Parallel/Sequential) and Chirp models
             else:
                 if not is_chirp:
-                    if i == 0: label += "w (FWHM (ps) /2.355)"
+                    if i == 0: label += "w (FWHM (ps))"
                     elif i == 1: label += "t0 (Time Zero)"
                     elif i < 2 + numExp: label += f"τ{i-1} (Lifetime)"
                     else:

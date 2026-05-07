@@ -118,28 +118,31 @@ def binning(data_c, WL, bin_size):
         WLAVG[i] = np.mean(WL[i*bin_size:(i+1)*bin_size])
     return datacAVG, WLAVG
 
+import numpy as np
+import scipy.special as _special
+
 def convolved_exp_vectorized(t, t0, taus, w):
     """
-        Calculates a sum of exponential decays convolved with a Gaussian IRF.
+    Calculates a sum of exponential decays convolved with a Gaussian IRF.
+    
+    HYBRID Version: Vectorized but using 'erf' (faster than erfc).
+    Optimized for speed using NumPy broadcasting.
+    
+    Parameters
+    ----------
+    t : numpy.ndarray
+        Time delay vector.
+    t0 : float
+        Time zero (center of the IRF).
+    taus : list or numpy.ndarray
+        List of exponential lifetimes.
+    w : float
+        Full Width at Half Maximum (FWHM) of the Instrument Response Function.
         
-        HYBRID Version: Vectorized but using 'erf' (faster than erfc).
-        Optimized for speed using NumPy broadcasting.
-    
-        Parameters
-        ----------
-        t : numpy.ndarray
-            Time delay vector.
-        t0 : float
-            Time zero (center of the IRF).
-        taus : list or numpy.ndarray
-            List of exponential lifetimes.
-        w : float
-            Width of the Instrument Response Function (IRF, related to FWHM).
-    
-        Returns
-        -------
-        numpy.ndarray
-            Matrix of convolved exponential shapes evaluated at t.
+    Returns
+    -------
+    numpy.ndarray
+        Matrix of convolved exponential shapes evaluated at t.
     """
     # t -> (N, 1)
     if t.ndim == 1:
@@ -150,18 +153,21 @@ def convolved_exp_vectorized(t, t0, taus, w):
     if taus.ndim == 1:
         taus = taus[np.newaxis, :]
     
+   
+    # Convertimos la FWHM de entrada (w) a sigma para la matemática gaussiana
+    sigma = w / (2 * np.sqrt(2 * np.log(2)))
+    
     # Constantes pequeñas para evitar división por cero
     tau_safe = np.maximum(taus, 1e-12)
-    w_safe = np.maximum(w, 1e-12)
+    sigma_safe = np.maximum(sigma, 1e-12)
     
-    # arg1 = (w^2 - 2*tau*(t-t0)) / (2*tau^2)
     # Factorizamos para reducir operaciones:
     t_diff = t - t0
-    w2 = w_safe**2
+    sigma2 = sigma_safe**2
     
-    # Operación matricial (Broadcasting)
-    arg1 = (w2 - 2 * tau_safe * t_diff) / (2 * tau_safe**2)
-    arg2 = (w2 - tau_safe * t_diff) / (np.sqrt(2) * w_safe * tau_safe)
+    # Operación matricial (Broadcasting) usando la sigma calculada
+    arg1 = (sigma2 - 2 * tau_safe * t_diff) / (2 * tau_safe**2)
+    arg2 = (sigma2 - tau_safe * t_diff) / (np.sqrt(2) * sigma_safe * tau_safe)
 
     # Mantenemos el clip en 700 que funciona bien con float64
     arg1 = np.clip(arg1, -700, 700)
