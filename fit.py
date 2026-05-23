@@ -4,7 +4,7 @@ import os
 from PyQt5.QtWidgets import QFileDialog
 from scipy import special as _special
 from scipy.linalg import expm
-
+from scipy.optimize import lsq_linear
 def load_npy(parent=None, normalize_per_wl=True):
     """
         Opens a dialog to load a treated data file (.npy).
@@ -124,57 +124,47 @@ import scipy.special as _special
 def convolved_exp_vectorized(t, t0, taus, w):
     """
     Calculates a sum of exponential decays convolved with a Gaussian IRF.
-    
-    HYBRID Version: Vectorized but using 'erf' (faster than erfc).
-    Optimized for speed using NumPy broadcasting.
-    
-    Parameters
-    ----------
-    t : numpy.ndarray
-        Time delay vector.
-    t0 : float
-        Time zero (center of the IRF).
-    taus : list or numpy.ndarray
-        List of exponential lifetimes.
-    w : float
-        Full Width at Half Maximum (FWHM) of the Instrument Response Function.
-        
-    Returns
-    -------
-    numpy.ndarray
-        Matrix of convolved exponential shapes evaluated at t.
+    VERSIÓN HÍBRIDA ESTABLE CON BROADCASTING CORREGIDO.
     """
-    # t -> (N, 1)
     if t.ndim == 1:
         t = t[:, np.newaxis]
         
-    # taus -> (1, M)
     taus = np.asarray(taus)
     if taus.ndim == 1:
         taus = taus[np.newaxis, :]
     
-   
-    # Convertimos la FWHM de entrada (w) a sigma para la matemática gaussiana
     sigma = w / (2 * np.sqrt(2 * np.log(2)))
     
-    # Constantes pequeñas para evitar división por cero
     tau_safe = np.maximum(taus, 1e-12)
     sigma_safe = np.maximum(sigma, 1e-12)
     
-    # Factorizamos para reducir operaciones:
     t_diff = t - t0
-    sigma2 = sigma_safe**2
     
-    # Operación matricial (Broadcasting) usando la sigma calculada
-    arg1 = (sigma2 - 2 * tau_safe * t_diff) / (2 * tau_safe**2)
-    arg2 = (sigma2 - tau_safe * t_diff) / (np.sqrt(2) * sigma_safe * tau_safe)
-
-    # Mantenemos el clip en 700 que funciona bien con float64
-    arg1 = np.clip(arg1, -700, 700)
+    # 'x' tendrá tamaño (N_tiempos, M_taus) debido al broadcasting
+    x = (sigma_safe**2 - tau_safe * t_diff) / (np.sqrt(2) * sigma_safe * tau_safe)
     
-    # Fórmula: 0.5 * exp(arg1) * (1 - erf(arg2))
-    return 0.5 * np.exp(arg1) * (1 - _special.erf(arg2))
-
+    out = np.zeros_like(x)
+    
+    # ---------------------------------------------------------
+    # EL ARREGLO: Expandimos las matrices para que coincidan con 
+    # la forma de la máscara booleana antes de indexar.
+    # ---------------------------------------------------------
+    t_diff_full = np.broadcast_to(t_diff, x.shape)
+    tau_full = np.broadcast_to(tau_safe, x.shape)
+    
+    # RÉGIMEN 1: Tiempos tempranos (x >= 0)
+    mask_pos = x >= 0
+    if np.any(mask_pos):
+        exponent_erfcx = - (t_diff_full[mask_pos]**2) / (2 * sigma_safe**2)
+        out[mask_pos] = 0.5 * np.exp(exponent_erfcx) * _special.erfcx(x[mask_pos])
+        
+    # RÉGIMEN 2: Tiempos tardíos (x < 0)
+    mask_neg = ~mask_pos
+    if np.any(mask_neg):
+        arg1 = (sigma_safe**2 - 2 * tau_full[mask_neg] * t_diff_full[mask_neg]) / (2 * tau_full[mask_neg]**2)
+        out[mask_neg] = 0.5 * np.exp(arg1) * _special.erfc(x[mask_neg])
+        
+    return out
 # =============================================================================
 # MODEL EVALUATION FUNCTIONS
 # =============================================================================
@@ -478,4 +468,78 @@ def eval_oscillation_model(x, t, numExp, numWL, t0_choice_str):
     return F
 
 
+# =============================================================================
+# NUEVO MOTOR VARPRO: Generadores de Matrices de Concentración (C)
+# =============================================================================
 
+def get_concentration_matrix_global(x_nl, t, numExp, use_art=False):
+    w, t0 = x_nl[0], x_nl[1]
+    taus = x_nl[2:2+numExp]
+    C = convolved_exp_vectorized(t, t0, taus, w)
+    if use_art: C = np.hstack([C, get_coherent_artifact(t, t0, w)])
+    return C
+
+def get_concentration_matrix_sequential(x_nl, t, numExp, use_art=False):
+    w, t0 = x_nl[0], x_nl[1]
+    taus = x_nl[2:2+numExp]
+    pops_list = get_sequential_populations(t, t0, w, taus)
+    C = np.column_stack(pops_list)
+    if use_art: C = np.hstack([C, get_coherent_artifact(t, t0, w)])
+    return C
+
+def get_concentration_matrix_oscillation(x_nl, t, numExp, use_art=False):
+    w, t0 = x_nl[0], x_nl[1]
+    taus = x_nl[2:2+numExp]
+    alpha, omega, phi = x_nl[2+numExp], x_nl[2+numExp+1], x_nl[2+numExp+2]
+    basis_exp = convolved_exp_vectorized(t, t0, taus, w)
+    basis_osc = damped_oscillation(t, t0, alpha, omega, phi, w).reshape(-1, 1)
+    C = np.hstack([basis_exp, basis_osc])
+    if use_art: C = np.hstack([C, get_coherent_artifact(t, t0, w)])
+    return C
+
+def eval_varpro_model(C, data_c_T, enforce_nonneg=False, numExp=None):
+    """
+    Ejecuta la Proyección Variable.
+    Si enforce_nonneg es True, fuerza a que las amplitudes de las especies (SAS)
+    sean >= 0, pero permite que el artefacto coherente fluya libremente.
+    """
+    if enforce_nonneg and numExp is not None:
+        S_T = np.zeros((C.shape[1], data_c_T.shape[1]))
+        
+        # Límites: [0, infinito] para las especies exponenciales
+        # [-infinito, infinito] para el artefacto coherente o la oscilación
+        lb = np.full(C.shape[1], -np.inf)
+        lb[:numExp] = 0.0 
+        
+        # Lazo súper optimizado usando el método Bounded Variables (BVLS)
+        for i in range(data_c_T.shape[1]):
+            res = lsq_linear(C, data_c_T[:, i], bounds=(lb, np.inf), method='bvls')
+            S_T[:, i] = res.x
+            
+        F = C @ S_T
+        return F, S_T
+    else:
+        # Mínimos cuadrados lineales estándar (Sin límites)
+        S_T, _, _, _ = np.linalg.lstsq(C, data_c_T, rcond=None)
+        F = C @ S_T
+        return F, S_T
+
+def get_coherent_artifact(t, t0, w):
+    """Genera la base matemática para absorber Raman y XPM (IRF y sus derivadas)."""
+    if t.ndim == 1: t = t[:, np.newaxis]
+    sigma = max(w / (2 * np.sqrt(2 * np.log(2))), 1e-12)
+    t_diff = t - t0
+
+    # IRF Gaussiano (Absorbe Raman y Absorción de 2 fotones)
+    irf = np.exp(-0.5 * (t_diff / sigma)**2)
+    # Primera derivada (Absorbe XPM y efectos dispersivos)
+    irf_d1 = - (t_diff / sigma**2) * irf
+    # Segunda derivada
+    irf_d2 = ((t_diff**2 - sigma**2) / sigma**4) * irf
+
+    # Normalizamos para estabilidad numérica del solver lineal
+    irf = irf / (np.max(np.abs(irf)) + 1e-12)
+    irf_d1 = irf_d1 / (np.max(np.abs(irf_d1)) + 1e-12)
+    irf_d2 = irf_d2 / (np.max(np.abs(irf_d2)) + 1e-12)
+
+    return np.hstack([irf, irf_d1, irf_d2])

@@ -38,7 +38,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QFont, QPalette, QColor, QDesktopServices, QIcon
 from PyQt5.QtCore import Qt, QTimer, QUrl, QSize,QEvent
 
-
 import fit
 from core_analysis import fit_t0, load_data, eV_a_nm
 from GlobalFitClassGui import GlobalFitPanel
@@ -427,7 +426,13 @@ class FLUPSAnalyzer(QMainWindow):
         self.btn_fit = QPushButton("Fit t₀")
         self.btn_fit.clicked.connect(self.fit_t0_points)
         self.btn_fit.setEnabled(False)
-    
+        
+        self.btn_auto_chirp = QPushButton("Auto-Chirp (Experimental)")
+        self.btn_auto_chirp.clicked.connect(self.auto_fit_chirp)
+        self.btn_auto_chirp.setObjectName("BtnGreen") # Para que destaque
+        self.btn_auto_chirp.setEnabled(False)
+        self.btn_auto_chirp.setToolTip("Automatically detect and correct t0 dispersion")
+        
         self.btn_show_corr = QPushButton("Show Corrected Map")
         self.btn_show_corr.clicked.connect(self.toggle_corrected_map)
         self.btn_show_corr.setEnabled(False)
@@ -474,6 +479,7 @@ class FLUPSAnalyzer(QMainWindow):
         top_layout.addWidget(self.btn_plot)
         top_layout.addWidget(self.btn_select)
         top_layout.addWidget(self.btn_fit)
+        top_layout.addWidget(self.btn_auto_chirp)
         top_layout.addWidget(self.btn_show_corr)
         top_layout.addWidget(self.btn_remove_fringe)
         top_layout.addWidget(self.btn_global_fit)
@@ -896,7 +902,8 @@ class FLUPSAnalyzer(QMainWindow):
             self.btn_plot.setEnabled(True)
             self.btn_select.setEnabled(True)
             self.btn_fit.setEnabled(True)
-    
+            self.btn_auto_chirp.setEnabled(True)
+            
             # Update sliders
             nwl = len(wl)
             self.slider_min.blockSignals(True) 
@@ -1348,6 +1355,94 @@ class FLUPSAnalyzer(QMainWindow):
         QMessageBox.information(self, "t₀ Fit Result",
                                 f"Fit completed using {method} model.\nParameters: {np.round(popt,4)}")
 
+    def auto_fit_chirp(self):
+        """
+        Automatically detects t0 using Gaussian smoothing and a strict 
+        Global Intensity Threshold to reject dead spectral zones.
+        """
+        if self.data is None:
+            QMessageBox.warning(self, "No data", "Load data first.")
+            return
+
+        from scipy.ndimage import gaussian_filter1d
+
+        # 1. Usar región visible
+        if hasattr(self, 'WL_visible') and self.WL_visible is not None:
+            wl_array = self.WL_visible
+            data_array = self.data_visible
+        else:
+            wl_array = self.WL
+            data_array = self.data
+
+        # 2. Definir ventana de búsqueda
+        global_max_idx = np.unravel_index(np.nanargmax(data_array), data_array.shape)
+        global_t_max = self.TD[global_max_idx[1]]
+        t_search_max = global_t_max + 3.0 
+        valid_td_mask = self.TD <= t_search_max
+
+        # EL FILTRO MAESTRO: 15% del máximo absoluto de todo el mapa
+        global_max_val = np.nanmax(data_array)
+        global_threshold = global_max_val * 0.15 
+
+        w_points = []
+        t0_points = []
+
+        for i, wl in enumerate(wl_array):
+            raw_kinetics = data_array[i, :]
+            
+            # Suavizar para no pillar ruido de alta frecuencia
+            kinetics = gaussian_filter1d(raw_kinetics, sigma=2)
+
+            kinetics_valid = kinetics[valid_td_mask]
+            td_valid = self.TD[valid_td_mask]
+
+            if len(kinetics_valid) < 5: continue 
+
+            max_idx = np.argmax(kinetics_valid)
+            max_val = kinetics_valid[max_idx]
+
+            # LA CRIBADORA: Si esta lambda no tiene fuerza real comparada con el pico, fuera.
+            if max_val < global_threshold:
+                continue
+
+            target_val = max_val * 0.5
+            cross_idx = None
+            
+            for j in range(max_idx, 0, -1):
+                if kinetics_valid[j] >= target_val and kinetics_valid[j-1] < target_val:
+                    cross_idx = j
+                    break
+
+            if cross_idx is not None:
+                y1, y2 = kinetics_valid[cross_idx - 1], kinetics_valid[cross_idx]
+                t1, t2 = td_valid[cross_idx - 1], td_valid[cross_idx]
+
+                if y2 != y1: 
+                    t0_exact = t1 + (target_val - y1) * (t2 - t1) / (y2 - y1)
+                    w_points.append(wl)
+                    t0_points.append(t0_exact)
+
+        if len(w_points) < 3:
+            QMessageBox.warning(self, "Auto-Chirp failed", "No clear signals found. Adjust sliders or lower the global threshold.")
+            return
+
+        # Limpiar y dibujar
+        self.clicked_points = [{'x': w, 'y': t} for w, t in zip(w_points, t0_points)]
+        
+        for p in self.clicked_points:
+            p['artist'], = self.ax_map.plot(p['x'], p['y'], 'wo', markeredgecolor='g', markersize=4, zorder=6)
+        self.canvas.draw_idle()
+
+        # Llamar al fit
+        try:
+            reply = QMessageBox.question(self, 'Auto-Chirp Detection', 
+                                         f"Found {len(w_points)} clean t0 points.\nProceed to fit and correct?",
+                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if reply == QMessageBox.Yes:
+                self.fit_t0_points()
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Auto-Chirp Error", str(e))
 
     def toggle_corrected_map(self):
         """Toggles between the original and corrected map using optimized rendering."""

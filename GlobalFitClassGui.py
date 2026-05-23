@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QProgressBar, QTableWidget, QTableWidgetItem,
     QHeaderView, QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, 
     QFormLayout, QWidget, QTabWidget, QApplication, QInputDialog,
-    QCheckBox, QLineEdit, QListView
+    QCheckBox, QLineEdit, QListView,QFileDialog,QScrollArea
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
@@ -18,7 +18,15 @@ from scipy.optimize import least_squares
 import fit
 from matplotlib.widgets import Cursor
 from matplotlib.ticker import FuncFormatter
-
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
+    QMessageBox, QLineEdit, QCheckBox, QListWidget, 
+    QAbstractItemView, QListWidgetItem, QColorDialog, QFormLayout
+)
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
+from PyQt5.QtCore import Qt
 # ---------------------------------------------------------------------
 # GUI Styling Constants
 # ---------------------------------------------------------------------
@@ -229,7 +237,257 @@ class Surface3DWindow(QDialog):
             
         self.canvas.draw()
 
+class PlotViewerWindow(QDialog):
+    """Ventana independiente para visualizar gráficos SAS/DAS sin bloquear la app."""
+    def __init__(self, fig, title="Plot", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(900, 600)
+        self.setWindowModality(Qt.NonModal) # Esto hace que no bloquee la app principal
+        self.setStyleSheet(DARK_THEME_STYLE)
+        
+        layout = QVBoxLayout(self)
+        self.canvas = FigureCanvas(fig)
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        
+        layout.addWidget(self.toolbar)
+        layout.addWidget(self.canvas)
 
+
+class TraceExplorerWindow(QDialog):
+    """Explorador interactivo de cinéticas sin bloquear la interfaz."""
+    def __init__(self, parent_panel, outdir):
+        super().__init__(parent_panel)
+        self.p = parent_panel
+        self.outdir = outdir
+        self.setWindowTitle("Interactive Trace Viewer")
+        self.resize(1000, 550)
+        self.setWindowModality(Qt.NonModal) # Clave para que flote libremente
+        self.setStyleSheet(DARK_THEME_STYLE + BUTTON_STYLE)
+
+        layout = QVBoxLayout(self)
+
+        # Controles superiores
+        ctrl_layout = QHBoxLayout()
+        ctrl_layout.addWidget(QLabel("Wavelength (nm):"))
+        
+        self.wl_array = getattr(self.p, '_wl_proc', self.p.WL)
+        self.td_array = getattr(self.p, '_td_proc', self.p.TD)
+        
+        # Usamos un ComboBox para moverse exactamente por los índices medidos
+        self.combo_wl = QComboBox()
+        self.combo_wl.addItems([f"{w:.1f}" for w in self.wl_array])
+        self.combo_wl.setCurrentIndex(len(self.wl_array)//2)
+        self.combo_wl.currentIndexChanged.connect(self.update_plot)
+        ctrl_layout.addWidget(self.combo_wl)
+
+        self.btn_save = QPushButton("Save Trace Data")
+        self.btn_save.clicked.connect(self.save_trace)
+        ctrl_layout.addWidget(self.btn_save)
+        layout.addLayout(ctrl_layout)
+
+        # Lienzo (Canvas) de Matplotlib
+        self.fig = plt.Figure(figsize=(12, 5))
+        self.canvas = FigureCanvas(self.fig)
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        layout.addWidget(self.toolbar)
+        layout.addWidget(self.canvas)
+
+        self.update_plot()
+
+    def update_plot(self):
+        self.fig.clear()
+        idx = self.combo_wl.currentIndex()
+        real_wl = self.wl_array[idx]
+        
+        y_exp = self.p.data_c[idx, :]
+        td = self.td_array
+        
+        # Generar eje de tiempo suave para el Fit
+        td_lin = np.linspace(td.min(), 1.0, 1000)
+        td_log = np.geomspace(1.0, max(1.1, td.max()), 1000)
+        td_smooth = np.unique(np.concatenate((td_lin, td_log)))
+        
+        # Evaluar el modelo
+        if self.p.t0_choice == 'No' and hasattr(self.p, 'S_T_full'):
+            # NUEVO: Reconstrucción fiel usando VarPro y el Artefacto
+            use_art = getattr(self.p, 'chk_artifact', None) and self.p.chk_artifact.isChecked()
+            
+            if self.p.model_type == "Sequential":
+                C_smooth = fit.get_concentration_matrix_sequential(self.p.fit_x, td_smooth, self.p.numExp, use_art)
+            elif self.p.model_type == 'Damped Oscillation':
+                C_smooth = fit.get_concentration_matrix_oscillation(self.p.fit_x, td_smooth, self.p.numExp, use_art)
+            else:
+                C_smooth = fit.get_concentration_matrix_global(self.p.fit_x, td_smooth, self.p.numExp, use_art)
+                
+            # Multiplicamos la cinética suave por TODAS las amplitudes de esta longitud de onda
+            y_fit_smooth = C_smooth @ self.p.S_T_full[:, idx]
+            
+        else:
+            # MODO CLÁSICO (Chirp o compatibilidad)
+            if self.p.model_type == "Sequential":
+                F_mat_smooth = fit.eval_sequential_model(self.p.fit_x, td_smooth, self.p.numExp, len(self.wl_array), self.p.t0_choice)
+            elif self.p.model_type == 'Damped Oscillation':
+                F_mat_smooth = fit.eval_oscillation_model(self.p.fit_x, td_smooth, self.p.numExp, len(self.wl_array), self.p.t0_choice)
+            else:
+                F_mat_smooth = fit.eval_global_model(self.p.fit_x, td_smooth, self.p.numExp, len(self.wl_array), self.p.t0_choice)
+                
+            y_fit_smooth = F_mat_smooth.T[idx, :]
+
+        ax1 = self.fig.add_subplot(121)
+        ax2 = self.fig.add_subplot(122, sharey=ax1)
+        self.fig.suptitle(f"Fit at {real_wl:.1f} nm", fontsize=14)
+
+        # Plot Lineal
+        ax1.plot(td, y_exp, 'bo', markersize=4, alpha=0.6, label='Data')
+        ax1.plot(td_smooth, y_fit_smooth, 'r-', linewidth=2, label='Fit')
+        ax1.set_xlabel("Time / ps")
+        ax1.set_ylabel("ΔA")
+        ax1.legend(frameon=True)
+        ax1.grid(True, alpha=0.3)
+
+        # Plot Semi-Log
+        mask_pos_exp = td > 0
+        mask_pos_smooth = td_smooth > 0
+        if np.any(mask_pos_exp):
+            ax2.plot(td[mask_pos_exp], y_exp[mask_pos_exp], 'bo', markersize=4, alpha=0.6)
+            ax2.plot(td_smooth[mask_pos_smooth], y_fit_smooth[mask_pos_smooth], 'r-', linewidth=2)
+            ax2.set_xscale('log')
+            ax2.set_xlabel("Time / ps (log scale)")
+            ax2.grid(True, which="both", ls="-", alpha=0.3)
+
+        self.fig.tight_layout()
+        self.canvas.draw()
+        
+    def save_trace(self):
+        idx = self.combo_wl.currentIndex()
+        real_wl = self.wl_array[idx]
+        img_name = f"Trace_{real_wl:.1f}nm.png"
+        self.fig.savefig(os.path.join(self.outdir, img_name), dpi=300)
+        QMessageBox.information(self, "Saved", f"Trace saved successfully in:\n{self.outdir}")
+ 
+
+
+class CompareSetupDialog(QDialog):
+    """Cuadro de diálogo interactivo con Drag & Drop y selector de color."""
+    def __init__(self, wl_min, wl_max, default_wl, filenames, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Kinetics Comparison Setup")
+        self.resize(450, 420)
+        
+        # Intentamos usar el estilo oscuro si está en el padre, si no, uno básico
+        style = getattr(parent, 'styleSheet', lambda: "")()
+        if style: self.setStyleSheet(style)
+        
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        
+        # 1. Parámetros básicos
+        self.wl_input = QLineEdit(str(default_wl))
+        form.addRow(f"Wavelength (nm) [{wl_min:.1f} - {wl_max:.1f}]:", self.wl_input)
+        
+        self.chk_norm = QCheckBox("Normalize to Max = 1")
+        self.chk_norm.setChecked(True)
+        form.addRow("", self.chk_norm)
+        
+        self.title_input = QLineEdit("Kinetics Comparison")
+        form.addRow("Plot Title:", self.title_input)
+        
+        layout.addLayout(form)
+        
+        # Colores por defecto (Paleta "tab10" de Matplotlib)
+        self.default_colors = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+        ]
+        
+        # 2. Lista interactiva
+        layout.addWidget(QLabel("<b>Legend Labels & Order:</b><br/><i>(Drag to reorder, Double-click to edit)</i>"))
+        
+        self.list_widget = QListWidget()
+        self.list_widget.setDragDropMode(QAbstractItemView.InternalMove)
+        self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list_widget.setAlternatingRowColors(True)
+        
+        for original_idx, name in enumerate(filenames):
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemIsEditable | Qt.ItemIsDragEnabled | Qt.ItemIsSelectable)
+            
+            # Guardamos el índice original
+            item.setData(Qt.UserRole, original_idx)
+            
+            # Asignamos y guardamos el color
+            color_hex = self.default_colors[original_idx % len(self.default_colors)]
+            item.setData(Qt.UserRole + 1, color_hex)
+            item.setIcon(self._create_color_icon(color_hex))
+            
+            self.list_widget.addItem(item)
+            
+        layout.addWidget(self.list_widget)
+        
+        # 3. Botón para cambiar el color
+        btn_color = QPushButton("🎨 Change Selected Color")
+        btn_color.clicked.connect(self.change_item_color)
+        layout.addWidget(btn_color)
+            
+        # 4. Botones de acción principales
+        btns = QHBoxLayout()
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        
+        btn_ok = QPushButton("Plot")
+        btn_ok.clicked.connect(self.accept)
+        
+        btns.addWidget(btn_cancel)
+        btns.addWidget(btn_ok)
+        layout.addLayout(btns)
+        
+    def _create_color_icon(self, color_hex):
+        """Dibuja un pequeño cuadrado de color para ponerlo junto al nombre."""
+        pixmap = QPixmap(16, 16)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setBrush(QColor(color_hex))
+        painter.setPen(QColor(0, 0, 0)) # Borde negro
+        painter.drawRect(0, 0, 15, 15)
+        painter.end()
+        return QIcon(pixmap)
+        
+    def change_item_color(self):
+        """Abre la paleta de colores y actualiza el item seleccionado."""
+        selected_items = self.list_widget.selectedItems()
+        if not selected_items:
+            return
+            
+        item = selected_items[0]
+        current_color = item.data(Qt.UserRole + 1)
+        
+        # Abrir el selector de color nativo
+        color = QColorDialog.getColor(QColor(current_color), self, "Select Curve Color")
+        
+        if color.isValid():
+            new_hex = color.name() # Ej: '#ff0000'
+            item.setData(Qt.UserRole + 1, new_hex)
+            item.setIcon(self._create_color_icon(new_hex))
+        
+    def get_data(self):
+        """Devuelve todos los datos, incluyendo la lista de colores final."""
+        try:
+            wl = float(self.wl_input.text())
+        except ValueError:
+            wl = None 
+            
+        custom_labels = []
+        ordered_indices = []
+        custom_colors = []
+        
+        for row in range(self.list_widget.count()):
+            item = self.list_widget.item(row)
+            custom_labels.append(item.text())
+            ordered_indices.append(item.data(Qt.UserRole))
+            custom_colors.append(item.data(Qt.UserRole + 1)) # Extraemos el color de cada uno
+            
+        return wl, self.chk_norm.isChecked(), self.title_input.text(), custom_labels, ordered_indices, custom_colors
 class GlobalFitPanel(QDialog):
     """
     Global Fit Analysis Panel.
@@ -244,24 +502,30 @@ class GlobalFitPanel(QDialog):
         self.setWindowTitle("Global Fit Analysis")
         self.setWindowFlags(self.windowFlags() | Qt.WindowMinMaxButtonsHint)
         
+        # --- AUTO-AJUSTE Y CENTRADO INTELIGENTE ---
         screen = QApplication.primaryScreen()
         screen_geom = screen.availableGeometry()
         
-        w_target = int(screen_geom.width() * 0.8)
-        h_target = int(screen_geom.height() * 0.65)
+        # Calculamos un tamaño objetivo, asegurándonos de no exceder los márgenes de la pantalla
+        w_target = min(1200, int(screen_geom.width() * 0.85))
+        h_target = min(850, int(screen_geom.height() * 0.85))
         
-        x_pos = (screen_geom.width() - w_target) // 2 + screen_geom.left()
-        y_pos = screen_geom.top() + 50
-        
-        self.setGeometry(x_pos, y_pos, w_target, h_target)
+        self.resize(w_target, h_target)
         self.setStyleSheet(DARK_THEME_STYLE + BUTTON_STYLE) # Apply Dark Theme
+
+        # Centrar la ventana en la pantalla actual de forma nativa
+        qr = self.frameGeometry()
+        cp = screen_geom.center()
+        qr.moveCenter(cp)
+        self.move(qr.topLeft())
 
         # --- 1. Data Variables ---
         self.parent_app = parent
-        self.data_c = None   
-        self.data_raw = None 
-        self.TD = None       
-        self.WL = None       
+        self.data_c_list = []      # Lista para guardar los datos procesados
+        self.data_raw_list = []    # Lista para guardar las matrices crudas
+        self.TD_list = []          # Lista para los ejes de tiempo
+        self.WL_list = []          # Lista para los ejes de longitud de onda
+        self.filenames = []        # Nombres de los archivos para la leyenda
         self.base_dir = None
 
         if hasattr(parent, "save_dir") and parent.save_dir:
@@ -300,15 +564,24 @@ class GlobalFitPanel(QDialog):
         # --- 3. MAIN LAYOUT DESIGN ---
         main_layout = QHBoxLayout() 
         
-        # --- A. Left Panel (Sidebar) ---
-        self.sidebar = QWidget()
-        self.sidebar.setFixedWidth(340) 
-        self.sidebar_layout = QVBoxLayout(self.sidebar)
+        # --- A. Left Panel (Sidebar) CON SCROLL ---
+        # 1. Creamos el área de Scroll
+        self.sidebar_scroll = QScrollArea()
+        self.sidebar_scroll.setFixedWidth(360) # Un poco más ancho para dejar espacio a la barra
+        self.sidebar_scroll.setWidgetResizable(True) # Esto hace que se adapte al tamaño
+        self.sidebar_scroll.setFrameShape(QScrollArea.NoFrame) # Sin borde feo
+        
+        # 2. Creamos el Widget contenedor que irá DENTRO del scroll
+        self.sidebar_widget = QWidget()
+        self.sidebar_layout = QVBoxLayout(self.sidebar_widget)
         self.sidebar_layout.setContentsMargins(5, 5, 5, 5)
         
-        self._init_sidebar_ui() 
+        # 3. Metemos el widget en el scroll y el scroll en el layout principal
+        self.sidebar_scroll.setWidget(self.sidebar_widget)
         
-        main_layout.addWidget(self.sidebar)
+        self._init_sidebar_ui() # Esto llenará el self.sidebar_layout como siempre
+        
+        main_layout.addWidget(self.sidebar_scroll)
     
         # --- B. Right Panel (Plots) ---
         self.right_area = QWidget()
@@ -344,12 +617,23 @@ class GlobalFitPanel(QDialog):
         self.btn_load = QPushButton("Load .npy")
         self.btn_load.clicked.connect(self.load_data) 
         h_btns.addWidget(self.btn_load)
-        
+    
         self.btn_parent = QPushButton("Use Parent Data")
         self.btn_parent.clicked.connect(self.use_parent_data) 
         h_btns.addWidget(self.btn_parent)
         
         v_load.addLayout(h_btns)
+        self.btn_compare = QPushButton("Compare Kinetics")
+        self.btn_compare.clicked.connect(self.compare_kinetics)
+        v_load.addWidget(self.btn_compare)
+        
+        v_load.addWidget(QLabel("<b>Visualizing Dataset:</b>"))
+        self.combo_active_dataset = QComboBox()
+        self.combo_active_dataset.setView(QListView())
+        
+        self.combo_active_dataset.currentIndexChanged.connect(self._on_active_dataset_changed)
+        v_load.addWidget(self.combo_active_dataset)
+        
         gb_load.setLayout(v_load)
         l.addWidget(gb_load)
 
@@ -457,6 +741,13 @@ class GlobalFitPanel(QDialog):
         self.chk_chirp = QCheckBox("Fit Independent t0 (Chirp)")
         form_model.addRow(self.chk_chirp)
         
+        self.chk_artifact = QCheckBox("Model Coherent Artifact (XPM/Raman)")
+        form_model.addRow(self.chk_artifact)
+        
+        # ---Checkbox para Forzar Positivos ---
+        self.chk_nnls = QCheckBox("Force Positive Spectra (NNLS)")
+        form_model.addRow(self.chk_nnls)
+        
         # Initial Guesses
         self.btn_edit_guess = QPushButton("Edit Initial Guesses")
         self.btn_edit_guess.clicked.connect(self._open_guess_editor_and_update)
@@ -470,6 +761,13 @@ class GlobalFitPanel(QDialog):
         self.btn_run.setEnabled(False)
         self.btn_run.clicked.connect(self.run_fit_pipeline) 
         l.addWidget(self.btn_run)
+        
+        self.btn_batch = QPushButton("RUN BATCH FIT (All Files)")
+        self.btn_batch.setFixedHeight(40)
+        self.btn_batch.setEnabled(False)
+        self.btn_batch.setStyleSheet("background-color: #0078D7; color: white; font-weight: bold;") # Azul para diferenciarlo
+        self.btn_batch.clicked.connect(self.run_batch_pipeline)
+        l.addWidget(self.btn_batch)
         
         self.btn_show_das = QPushButton("Show Plots / Results")
         self.btn_show_das.setEnabled(False)
@@ -816,28 +1114,135 @@ class GlobalFitPanel(QDialog):
             # Refresh UI components and enable execution   
             self._update_ui_limits_from_data()
             self.btn_run.setEnabled(True)
+            self.btn_batch.setEnabled(True)
             self.label_status.setText(f"Loaded from Parent: {len(self.WL)} WL, {len(self.TD)} TD")
 
     def load_data(self):
-        """Loads data from .npy files utilizing the external 'fit' module."""
-        try:
-            # Unpack data from the external fit module loader
-            raw_data, TD, WL, base_dir = fit.load_npy(self)
+        """Carga múltiples archivos .npy para compararlos."""
+  
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select .npy files", "", "Numpy Files (*.npy)"
+        )
+        
+        self.base_dir = os.path.dirname(file_paths[0])
+        
+        if not file_paths:
+            return
             
-            self.data_raw = raw_data.copy()
-            self.TD = TD
-            self.WL = WL
-            self.base_dir = base_dir
+        for path in file_paths:
+            try:
+                # Cargamos el archivo .npy directamente usando numpy
+                # allow_pickle=True y .item() extraen el diccionario directamente
+                loaded_dict = np.load(path, allow_pickle=True).item()
+                
+                # Extraemos las matrices usando las claves exactas de tu script original
+                raw_data = loaded_dict['data_c']
+                WL = loaded_dict['WL']
+                TD = loaded_dict['TD']
+                
+                self.data_raw_list.append(raw_data.copy())
+                self.data_c_list.append(raw_data.copy()) # Por defecto igual a crudo
+                self.TD_list.append(TD)
+                self.WL_list.append(WL)
+                self.filenames.append(os.path.basename(path))
+                
+            except Exception as e:
+                QMessageBox.critical(self, f"Error loading {os.path.basename(path)}", str(e))
+                
+    # Sincronizamos la UI usando el primer archivo cargado como base
+        if self.WL_list:
+            self.WL = self.WL_list[0]
+            self.TD = self.TD_list[0]
+            self.data_raw = self.data_raw_list[0]
+            self.data_c = self.data_c_list[0]
             
-            # Synchronize UI with the new dataset
             self._update_ui_limits_from_data()
             self.btn_run.setEnabled(True)
-            self.label_status.setText(f"Loaded File: {len(self.WL)} WL, {len(self.TD)} TD")
+            self.btn_batch.setEnabled(True)
             
-        except Exception as e:
-            # Display a critical message box if the loading process fails
-            QMessageBox.critical(self, "Error loading", str(e))
+            # --- NUEVO: Poblar el combo box con los archivos cargados ---
+            self.combo_active_dataset.blockSignals(True) # Bloqueamos eventos temporales
+            self.combo_active_dataset.clear()
+            self.combo_active_dataset.addItems(self.filenames)
+            self.combo_active_dataset.setCurrentIndex(0)
+            self.combo_active_dataset.blockSignals(False)
+            
+            self.label_status.setText(f"Loaded {len(self.filenames)} Files")
+    def _on_active_dataset_changed(self, index):
+        """Cambia dinámicamente el dataset visible y carga sus ajustes si existen."""
+        if index < 0 or index >= len(self.data_c_list):
+            return
+            
+        # 1. Actualizar los punteros a las matrices del archivo seleccionado
+        self.data_raw = self.data_raw_list[index]
+        self.data_c = self.data_c_list[index]
+        self.WL = self.WL_list[index]
+        self.TD = self.TD_list[index]
+        
+        # Comprobar si ya pasaron por el pre-procesamiento (recortes/binning)
+        use_proc = False
+        if hasattr(self, 'wl_proc_list') and len(self.wl_proc_list) > index:
+            self._wl_proc = self.wl_proc_list[index]
+            self._td_proc = self.td_proc_list[index]
+            use_proc = True
+            
+        # 2. Re-dibujar el mapa experimental correspondiente
+        self._update_exp_canvas(use_processed=use_proc)
+        
+        # 3. Lógica inteligente: Intentar buscar si este archivo ya tiene un ajuste guardado
+        filename = self.filenames[index]
+        base_name = os.path.splitext(filename)[0]
+        
+        # Ruta donde el Batch guarda el ajuste de esta molécula específica
+        batch_fit_file = os.path.join(self.base_dir, "Batch_Results", base_name, "GFitResults.npy")
+        # Ruta del ajuste único estándar
+        standard_fit_file = os.path.join(self.base_dir, "fit", "GFitResults.npy")
+        
+        fit_path = None
+        if os.path.exists(batch_fit_file):
+            fit_path = batch_fit_file
+        elif index == 0 and os.path.exists(standard_fit_file):
+            fit_path = standard_fit_file
+            
+        if fit_path and os.path.exists(fit_path):
+            try:
+                # Cargamos el Fit histórico de esa molécula
+                fit_data = np.load(fit_path, allow_pickle=True).item()
+                self.fit_fitres = fit_data["fitres"]
+                self.fit_resid = fit_data["resid"]
+                self.extracted_taus = fit_data["taus"]
+                self.extracted_errtaus = fit_data["err_taus"]
+                self.As = fit_data["As"]
+                self.errAs = fit_data["errAs"]
+                self.numExp = len(self.extracted_taus)
+                
+                # Sincronizamos el spinbox de componentes por si acaso varió
+                self.spin_numExp.setValue(self.numExp)
+                
+                # Re-dibujamos las pestañas de ajuste y residuales con los datos correctos
+                self._update_fit_canvas()
+                self._update_resid_canvas()
+                self.btn_show_das.setEnabled(True)
+            except Exception as e:
+                print(f"Error cargando el Fit de {base_name}: {e}")
+                self._clear_fit_plots()
+        else:
+            # Si la molécula seleccionada aún no se ha ajustado, limpiamos las pantallas del Fit
+            self._clear_fit_plots()
 
+    def _clear_fit_plots(self):
+        """Limpia los lienzos de Fit y Residuales si el archivo actual no está ajustado."""
+        self.fit_fitres = None
+        self.fit_resid = None
+        self.As = None
+        self.ax_fit.clear()
+        self.ax_resid.clear()
+        self._clear_colorbar_if_exists(self.cbar_fit)
+        self._clear_colorbar_if_exists(self.cbar_resid)
+        self.canvas_fit.draw_idle()
+        self.canvas_resid.draw_idle()
+        self.btn_show_das.setEnabled(False)
+        
     def _clear_colorbar_if_exists(self, cbar):
         """
         Removes the specified colorbar from the plot if it exists.
@@ -852,113 +1257,218 @@ class GlobalFitPanel(QDialog):
             # Silently fail if the colorbar cannot be removed (e.g., already deleted)
             pass
     
-
+    def compare_kinetics(self):
+            """Compara cinéticas de múltiples archivos para una lambda específica con personalización total."""
+            if not getattr(self, 'data_c_list', None):
+                QMessageBox.warning(self, "No data", "Load multiple .npy files first.")
+                return
+    
+            use_proc = hasattr(self, 'wl_proc_list') and len(self.wl_proc_list) == len(self.data_c_list)
+            wl_base = self.wl_proc_list[0] if use_proc else self.WL_list[0]
+            text_default = f"{wl_base[len(wl_base)//2]:.1f}"
+            
+            dlg = CompareSetupDialog(wl_base.min(), wl_base.max(), text_default, self.filenames, self)
+            if dlg.exec_() != QDialog.Accepted:
+                return 
+                
+            # ===> Extraemos el nuevo array custom_colors <===
+            target_wl, normalize, custom_title, custom_labels, ordered_indices, custom_colors = dlg.get_data()
+            
+            if target_wl is None:
+                QMessageBox.critical(self, "Input Error", "Please enter a valid numeric wavelength.")
+                return
+    
+            try:
+                import matplotlib.pyplot as plt
+                fig, ax = plt.subplots(figsize=(9, 6))
+                
+                title_str = custom_title
+                if normalize and "Norm" not in title_str:
+                    title_str += f" (Norm) @ ~{target_wl:.1f} nm"
+                elif "nm" not in title_str:
+                    title_str += f" @ ~{target_wl:.1f} nm"
+                     
+                ax.set_title(title_str, fontsize=14)
+    
+                # ===> Aplicamos los colores personalizados <===
+                for ui_idx, original_idx in enumerate(ordered_indices):
+                    wl_array = self.wl_proc_list[original_idx] if use_proc else self.WL_list[original_idx]
+                    td_array = self.td_proc_list[original_idx] if use_proc else self.TD_list[original_idx]
+                    data_matrix = self.data_c_list[original_idx]
+                    
+                    name = custom_labels[ui_idx]
+                    plot_color = custom_colors[ui_idx]
+    
+                    idx = np.argmin(np.abs(wl_array - target_wl))
+                    y_exp = data_matrix[idx, :].copy() 
+    
+                    if normalize:
+                        max_val = np.nanmax(np.abs(y_exp))
+                        if max_val != 0:
+                            y_exp = y_exp / max_val
+    
+                    # Le pasamos el parámetro color a matplotlib
+                    ax.plot(td_array, y_exp, 'o-', markersize=4, alpha=0.8, color=plot_color, label=name)
+    
+                ax.set_xscale('symlog', linthresh=1.0) 
+                ax.set_xlabel("Time / ps (symlog scale)")
+                ax.set_ylabel("Norm. ΔA" if normalize else "ΔA") 
+                ax.grid(True, which="both", ls="-", alpha=0.3)
+                ax.legend(frameon=True)
+    
+                plt.tight_layout()
+                plt.show()
+    
+            except Exception as e:
+                QMessageBox.critical(self, "Plot Error", f"Failed to plot comparison: {e}")
     def _preview_data_processing(self):
         """
-        Processes raw data by applying: Baseline -> Wavelength Crop -> Time Crop -> Binning.
-        Stores the resulting processed matrix in self.data_c for fitting purposes.
+        Procesa los datos crudos para TODOS los archivos cargados aplicando: 
+        Baseline -> Wavelength Crop -> Time Crop -> Binning.
         """
-        if self.data_raw is None: return
-        
-        temp_data = self.data_raw.copy()
-        temp_WL = self.WL.copy()
-        temp_TD = self.TD.copy()
+        if getattr(self, 'data_raw_list', None) is None or not self.data_raw_list:
+            if self.data_raw is None: return
+            raw_list = [self.data_raw]
+            wl_list = [self.WL]
+            td_list = [self.TD]
+        else:
+            raw_list = self.data_raw_list
+            wl_list = self.WL_list
+            td_list = self.TD_list
 
-        # 1. Baseline Correction
-        n_pts = self.spin_bl.value()
-        if n_pts > 0 and temp_data.shape[1] >= n_pts:
-            # Assuming shape (WL, TD) -> axis 1 is time
-            # Calculate mean of the first n points to subtract as background
-            baseline = np.mean(temp_data[:, :n_pts], axis=1, keepdims=True)
-            temp_data = temp_data - baseline
-            
-        # 2. Wavelength Cropping
-        w_min = self.spin_wl_min.value()
-        w_max = self.spin_wl_max.value()
-        mask_w = (temp_WL >= min(w_min, w_max)) & (temp_WL <= max(w_min, w_max))
-        
-        # --- MULTI-CROP PROCESSOR ---
-        if hasattr(self, 'line_exclude'):
-            exclude_str = self.line_exclude.text().strip()
-            if exclude_str:
-                # Initialize an empty exclusion mask (all False)
-                mask_exclude = np.zeros_like(temp_WL, dtype=bool)
-                
-                # Split by commas to handle multiple ranges
-                ranges = exclude_str.split(',')
-                for r in ranges:
-                    try:
-                        # Split by hyphen to define start-end
-                        parts = r.split('-')
-                        if len(parts) == 2:
-                            c_min = float(parts[0].strip())
-                            c_max = float(parts[1].strip())
-                            
-                            # Accumulate exclusion zones using bitwise OR (|)
-                            mask_exclude |= (temp_WL >= min(c_min, c_max)) & (temp_WL <= max(c_min, c_max))
-                    except ValueError:
-                        # Ignore malformed input without crashing
-                        pass 
-                
-                # Apply general exclusion: Keep previous mask AND NOT excluded regions
-                mask_w &= (~mask_exclude)
-        
-        if np.any(mask_w):
-            temp_data = temp_data[mask_w, :]
-            temp_WL = temp_WL[mask_w]
-            
-        # 3. Time Cropping
-        t_min = self.spin_t_min.value()
-        t_max = self.spin_t_max.value()
-        mask_t = (temp_TD >= min(t_min, t_max)) & (temp_TD <= max(t_min, t_max))
-        
-        if np.any(mask_t):
-            temp_data = temp_data[:, mask_t]
-            temp_TD = temp_TD[mask_t]
-            
-        # Optional: Zero-out negative time delays post-baseline
-        if hasattr(self, 'chk_zero_neg') and self.chk_zero_neg.isChecked():
-                    mask_neg = temp_TD < 0
-                    if np.any(mask_neg):
-                        temp_data[:, mask_neg] = 0.0  # The real background post-baseline is 0
-        # 4. Binning (Simple averaging)
-        b_size = self.spin_bin.value()
-        if b_size > 1:
-            # Spectral (WL) axis binning
-            n_wl = temp_data.shape[0]
-            new_len = n_wl // b_size
-            if new_len > 0:
-                # Trim excess and perform reshape + mean
-                temp_data = temp_data[:new_len*b_size, :]
-                temp_data = temp_data.reshape(new_len, b_size, temp_data.shape[1]).mean(axis=1)
-                temp_WL = temp_WL[:new_len*b_size]
-                temp_WL = temp_WL.reshape(new_len, b_size).mean(axis=1)
+        self.data_c_list = []
+        self.wl_proc_list = []
+        self.td_proc_list = []
 
-        # SAVE PROCESSED RESULT
-        self.data_c = temp_data
-        
-        # Store processed versions for accurate plotting
-        self._wl_proc = temp_WL
-        self._td_proc = temp_TD
-        
-        # Update UI and plot
-        self._update_exp_canvas(use_processed=True)
-        self.label_status.setText(f"Data Ready: {len(temp_WL)} WL, {len(temp_TD)} TD")
-        
-        # --- AUTOMATIC 2D MAP EXPORT ---
-        try:
-            if self.base_dir:
+        # Aplicar el procesamiento a cada archivo cargado
+        for idx in range(len(raw_list)):
+            temp_data = raw_list[idx].copy()
+            temp_WL = wl_list[idx].copy()
+            temp_TD = td_list[idx].copy()
+
+            # 1. Baseline Correction
+            n_pts = self.spin_bl.value()
+            if n_pts > 0 and temp_data.shape[1] >= n_pts:
+                baseline = np.mean(temp_data[:, :n_pts], axis=1, keepdims=True)
+                temp_data = temp_data - baseline
+                
+            # 2. Wavelength Cropping
+            w_min = self.spin_wl_min.value()
+            w_max = self.spin_wl_max.value()
+            mask_w = (temp_WL >= min(w_min, w_max)) & (temp_WL <= max(w_min, w_max))
+            
+            # Exclusiones específicas
+            if hasattr(self, 'line_exclude'):
+                exclude_str = self.line_exclude.text().strip()
+                if exclude_str:
+                    mask_exclude = np.zeros_like(temp_WL, dtype=bool)
+                    ranges = exclude_str.split(',')
+                    for r in ranges:
+                        try:
+                            parts = r.split('-')
+                            if len(parts) == 2:
+                                c_min = float(parts[0].strip())
+                                c_max = float(parts[1].strip())
+                                mask_exclude |= (temp_WL >= min(c_min, c_max)) & (temp_WL <= max(c_min, c_max))
+                        except ValueError:
+                            pass 
+                    mask_w &= (~mask_exclude)
+            
+            if np.any(mask_w):
+                temp_data = temp_data[mask_w, :]
+                temp_WL = temp_WL[mask_w]
+                
+            # 3. Time Cropping
+            t_min = self.spin_t_min.value()
+            t_max = self.spin_t_max.value()
+            mask_t = (temp_TD >= min(t_min, t_max)) & (temp_TD <= max(t_min, t_max))
+            
+            if np.any(mask_t):
+                temp_data = temp_data[:, mask_t]
+                temp_TD = temp_TD[mask_t]
+                
+            if hasattr(self, 'chk_zero_neg') and self.chk_zero_neg.isChecked():
+                mask_neg = temp_TD < 0
+                if np.any(mask_neg):
+                    temp_data[:, mask_neg] = 0.0
+
+            # 4. Binning
+            b_size = self.spin_bin.value()
+            if b_size > 1:
+                n_wl = temp_data.shape[0]
+                new_len = n_wl // b_size
+                if new_len > 0:
+                    temp_data = temp_data[:new_len*b_size, :]
+                    temp_data = temp_data.reshape(new_len, b_size, temp_data.shape[1]).mean(axis=1)
+                    temp_WL = temp_WL[:new_len*b_size]
+                    temp_WL = temp_WL.reshape(new_len, b_size).mean(axis=1)
+
+            # Guardar el resultado procesado
+            self.data_c_list.append(temp_data)
+            self.wl_proc_list.append(temp_WL)
+            self.td_proc_list.append(temp_TD)
+
+        # Actualizar variables del modelo global usando el primer archivo
+        if self.data_c_list:
+            self.data_c = self.data_c_list[0]
+            self._wl_proc = self.wl_proc_list[0]
+            self._td_proc = self.td_proc_list[0]
+            
+            self._update_exp_canvas(use_processed=True)
+            self.label_status.setText(f"Processed {len(self.data_c_list)} files")
+            
+            try:
+                
                 outdir = os.path.join(self.base_dir, "Plots")
                 os.makedirs(outdir, exist_ok=True)
                 
-                save_path = os.path.join(outdir, "Experimental_Processed_Preview.png")
+                # Iteramos sobre todos los datasets que se acaban de procesar
+                for i in range(len(self.data_c_list)):
+                    z_data = self.data_c_list[i]
+                    x_data = self.wl_proc_list[i]
+                    y_data = self.td_proc_list[i]
+                    
+                    # Extraer el nombre original sin la extensión .npy
+                    if hasattr(self, 'filenames') and i < len(self.filenames):
+                        base_name = os.path.splitext(self.filenames[i])[0]
+                    else:
+                        base_name = f"Dataset_{i+1}"
+                        
+                    # 1. Crear figura "desconectada" de la GUI para evitar pantallazos
+                    fig_temp = Figure(figsize=(6, 4))
+                    canvas_temp = FigureCanvasAgg(fig_temp) # Motor de renderizado en segundo plano
+                    ax_temp = fig_temp.add_subplot(111)
+                    
+                    # 2. Calcular límites reales para no cortar la señal
+                    vmin_val = np.nanmin(z_data)
+                    vmax_val = np.nanmax(z_data)
+                    
+                    # 3. Dibujar el mapa
+                    pcm = ax_temp.pcolormesh(x_data, y_data, z_data.T, 
+                                             shading='auto', cmap='jet', 
+                                             vmin=vmin_val, vmax=vmax_val)
+                    
+                    ax_temp.set_title(f"Processed: {base_name}", fontsize=10)
+                    ax_temp.set_xlabel("Energy / Wavelength")
+                    ax_temp.set_ylabel("Delay (ps)")
+                    
+                    # Aplicar escala (SymLog o Lineal) según la interfaz
+                    if hasattr(self, 'yscale') and self.yscale == 'symlog':
+                        ax_temp.set_yscale('symlog', linthresh=2) 
+                    else:
+                        ax_temp.set_yscale('linear')
+                        
+                    fig_temp.colorbar(pcm, ax=ax_temp, label='$\Delta A$ / -')
+                    fig_temp.tight_layout()
+                    
+                    # 4. Guardar imagen (Ya no hace falta plt.close() porque no usa pyplot)
+                    filepath = os.path.join(outdir, f"Map_Processed_{base_name}.png")
+                    fig_temp.savefig(filepath, dpi=300)
                 
-                # Extract figure from the experimental canvas and save
-                self.canvas_exp.figure.savefig(save_path, dpi=300, bbox_inches='tight')
-                print(f"2D Map saved to: {save_path}")
+                print(f"Éxito: Se han exportado {len(self.data_c_list)} mapas procesados a la carpeta /Plots/")
                 
-        except Exception as e:
-            print(f"Error saving automatic preview: {e}")
+            except Exception as e:
+                print(f"Error durante el guardado masivo de los mapas procesados: {e}")
             
     def _update_exp_canvas(self, use_processed=False):
             """
@@ -988,17 +1498,18 @@ class GlobalFitPanel(QDialog):
                 Xs = np.arange(self.data_c.shape[0])
                 Ys = np.arange(self.data_c.shape[1])
     
+        
             try:
-                # Dynamic color scaling using 1st and 99th percentiles for better contrast
-                vals = self.data_c.flatten()
-                vmin = np.percentile(vals, 1) 
-                vmax = np.percentile(vals, 99)
+                # Reemplaza la línea antigua de np.percentile por esto:
+                # Usamos el mínimo y máximo real para que no se corte la escala al normalizar
+                self.exp_vmin = np.nanmin(self.data_c)
+                self.exp_vmax = np.nanmax(self.data_c)
                 
-                # Render the 2D map (transpose data_c to match WL vs TD orientation)
+                # Render the 2D map
                 self.pcm_exp = self.ax_exp.pcolormesh(Xs, Ys, self.data_c.T, 
                                                       shading="auto", cmap='jet', 
-                                                      vmin=vmin, vmax=vmax)
-                
+                                                      vmin=self.exp_vmin, vmax=self.exp_vmax)
+                            
                 # Set axis labels
                 self.ax_exp.set_xlabel("Energy / Wavelength")
                 self.ax_exp.set_ylabel("Delay (ps)")
@@ -1071,26 +1582,29 @@ class GlobalFitPanel(QDialog):
             if Ys is None or Ys.shape[0] != Z.shape[0]: Ys = np.arange(Z.shape[0])
     
             try:
-                # Basic validation to ensure there is enough data to plot a mesh
                 if Z.shape[0] < 2 or Z.shape[1] < 2: return
     
-                # Contrast enhancement by clipping the colorbar to the 1st and 99th percentiles
-                vals = Z.flatten()
-                vmin = np.percentile(vals, 1)  
-                vmax = np.percentile(vals, 99) 
+                # Forzamos los mismos límites de color (Z) que el Experimental
+                vmin = getattr(self, 'exp_vmin', np.nanmin(Z))
+                vmax = getattr(self, 'exp_vmax', np.nanmax(Z))
     
                 self.pcm_fit = self.ax_fit.pcolormesh(Xs, Ys, Z, shading='auto', cmap='jet', 
                                                       vmin=vmin, vmax=vmax)
                 
                 self.ax_fit.set_title("Fit Reconstructed")
-                self.ax_fit.set_xlabel("Energy (eV)")
+                self.ax_fit.set_xlabel("Energy / Wavelength")
                 self.ax_fit.set_ylabel("Delay (ps)")
                 
                 # --- APPLY Y-AXIS SCALE (CONDITIONAL) ---
                 if hasattr(self, 'yscale') and self.yscale == 'symlog':
-                    self.ax_fit.set_yscale('symlog', linthresh=1.0)
+                    self.ax_fit.set_yscale('symlog', linthresh=2)
                 else:
                     self.ax_fit.set_yscale('linear')
+                    
+                # Sincronizar límites del eje Y exactamente con el Experimental
+                if hasattr(self, 'ax_exp'):
+                    self.ax_fit.set_ylim(self.ax_exp.get_ylim())
+                    self.ax_fit.set_xlim(self.ax_exp.get_xlim())
                 
                 # Align colorbar using Axes Divider to match the plot height
                 divider = make_axes_locatable(self.ax_fit)
@@ -1129,15 +1643,17 @@ class GlobalFitPanel(QDialog):
                                                           vmin=vmin, vmax=vmax)
                 
                 self.ax_resid.set_title("Residuals")
-                self.ax_resid.set_xlabel("Energy (eV)")
+                self.ax_resid.set_xlabel("Energy / Wavelength")
                 self.ax_resid.set_ylabel("Delay (ps)")
                 
                 # --- APPLY Y-AXIS SCALE (CONDITIONAL) ---
                 if hasattr(self, 'yscale') and self.yscale == 'symlog':
-                    self.ax_resid.set_yscale('symlog', linthresh=1.0)
+                    self.ax_resid.set_yscale('symlog', linthresh=2)
                 else:
                     self.ax_resid.set_yscale('linear')
-                
+                if hasattr(self, 'ax_exp'):
+                    self.ax_resid.set_ylim(self.ax_exp.get_ylim()) 
+                    self.ax_resid.set_xlim(self.ax_exp.get_xlim()) 
                 # Create and align colorbar for the residuals plot
                 divider = make_axes_locatable(self.ax_resid)
                 cax = divider.append_axes("right", size="5%", pad=0.05)
@@ -1215,7 +1731,73 @@ class GlobalFitPanel(QDialog):
             QMessageBox.critical(self, "Fit Error", str(e))
             import traceback
             traceback.print_exc()
+            
+    def run_batch_pipeline(self):
+        """Ejecuta el ajuste para todos los archivos cargados de forma secuencial."""
+        if not getattr(self, 'data_c_list', None):
+            QMessageBox.warning(self, "No data", "Load multiple files first to run a batch fit.")
+            return
 
+        # 1. Aplicar pre-procesamiento si no se ha hecho
+        self._preview_data_processing()
+        
+        # 2. Configuración inicial del modelo
+        self.numExp = self.spin_numExp.value()
+        self.tech = self.combo_tech.currentText()
+        self.t0_choice = 'Yes' if self.chk_chirp.isChecked() else 'No'
+        model_str = self.combo_model.currentText()
+        if "Sequential" in model_str: self.model_type = "Sequential"
+        elif "Oscillation" in model_str: self.model_type = "Damped Oscillation"
+        else: self.model_type = "Parallel"
+        
+        # Asegurar que tenemos guesses iniciales
+        if self.ini is None:
+            self._generate_defaults()
+            
+        # Guardar los guesses originales para reiniciar en cada iteración
+        original_ini = self.ini.copy()
+        
+        # Carpeta maestra para el Batch
+        batch_outdir = os.path.join(self.base_dir, "Batch_Results")
+        os.makedirs(batch_outdir, exist_ok=True)
+        
+        # Bandera para evitar que los popups bloqueen el bucle
+        self.is_batch_running = True 
+        
+        try:
+            for idx in range(len(self.data_c_list)):
+                filename = self.filenames[idx] if idx < len(self.filenames) else f"Dataset_{idx+1}"
+                base_name = os.path.splitext(filename)[0]
+                
+                self.label_status.setText(f"Batch Fitting: {idx+1}/{len(self.data_c_list)} ({base_name})")
+                
+                self.combo_active_dataset.blockSignals(True)
+                self.combo_active_dataset.setCurrentIndex(idx)
+                self.combo_active_dataset.blockSignals(False)
+                
+                QApplication.processEvents()
+                
+                # Cargar datos específicos de esta iteración
+                self.data_c = self.data_c_list[idx]
+                self._temp_fit_WL = self.wl_proc_list[idx] if hasattr(self, 'wl_proc_list') else self.WL_list[idx]
+                self._temp_fit_TD = self.td_proc_list[idx] if hasattr(self, 'td_proc_list') else self.TD_list[idx]
+                
+                # Restaurar guesses y definir carpeta de salida única
+                self.ini = original_ini.copy()
+                self.current_batch_outdir = os.path.join(batch_outdir, base_name)
+                
+                # Ejecutar el núcleo matemático
+                self._run_least_squares_with_progress()
+                self._postprocess_fit_and_save()
+                
+            self.label_status.setText(f"Batch Completed: {len(self.data_c_list)} files.")
+            QMessageBox.information(self, "Batch Complete", f"Successfully fitted {len(self.data_c_list)} datasets.\nResults saved in: {batch_outdir}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Batch Error", f"Error during batch fit: {str(e)}")
+        finally:
+            self.is_batch_running = False
+            
     def _open_guess_editor_and_update(self):
         """Opens a dialog to manually edit initial guesses, bounds, and fixed parameters."""
         numExp = self.spin_numExp.value()
@@ -1324,79 +1906,118 @@ class GlobalFitPanel(QDialog):
                 self.is_fixed[i] = (table.item(i, 4).checkState() == Qt.Checked)
 
     def _run_least_squares_with_progress(self):
-        """Executes the least squares optimization while updating the UI progress bar."""
-        TD = self._temp_fit_TD
-        WL = self._temp_fit_WL
-        numWL = len(WL)
-        data_flat = self.data_c.T.flatten()
-        
-        # Ensure 'is_fixed' mask exists and matches parameter size
-        if not hasattr(self, 'is_fixed') or len(self.is_fixed) != len(self.ini):
-            self.is_fixed = np.zeros(len(self.ini), dtype=bool)
+            """Executes the least squares optimization while updating the UI progress bar."""
+            TD = self._temp_fit_TD
+            WL = self._temp_fit_WL
+            numWL = len(WL)
+            data_flat = self.data_c.T.flatten()
             
-        # Filter parameters: separate free (optimizable) parameters from fixed ones
-        free_indices = np.where(~self.is_fixed)[0]
-        x0_free = self.ini[free_indices]
-        low_free = self.limi[free_indices]
-        upp_free = self.lims[free_indices]
-    
-        # --- PROGRESS BAR LOGIC ---
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("Iterating: %v") # Display current iteration count
-        self.iter_count = 0 
-    
-        def residuals(p_free):
-            """Objective function for least_squares: returns the difference between model and data."""
-            # 1. Increment counter on every model evaluation
-            self.iter_count += 1
-            
-            # 2. Update progress bar every 10 evaluations to avoid UI overhead
-            if self.iter_count % 10 == 0:
-                # Cycle the bar (0-100) since the total number of iterations is unknown
-                val = (self.iter_count // 10) % 101
-                self.progress_bar.setValue(val)
+            # Ensure 'is_fixed' mask exists and matches parameter size
+            if not hasattr(self, 'is_fixed') or len(self.is_fixed) != len(self.ini):
+                self.is_fixed = np.zeros(len(self.ini), dtype=bool)
                 
-                # Force the UI to process events to prevent freezing and update graphics
-                QApplication.processEvents()
-    
-            # Reconstruct the full parameter vector (injecting free params into original array)
-            x_full = self.ini.copy()
-            x_full[free_indices] = p_free
-            
-            # Select and evaluate the specific kinetic model
-            if self.model_type == "Sequential":
-                F = fit.eval_sequential_model(x_full, TD, self.numExp, numWL, self.t0_choice)
-            elif self.model_type == 'Damped Oscillation':
-                F = fit.eval_oscillation_model(x_full, TD, self.numExp, numWL, self.t0_choice)
-          
-            else:
-                F = fit.eval_global_model(x_full, TD, self.numExp, numWL, self.t0_choice)
-            
-            return F.flatten() - data_flat
-    
-        try:
-            # Run the Levenberg-Marquardt or TRF algorithm
-            res = least_squares(
-                fun=residuals,
-                x0=x0_free,
-                bounds=(low_free, upp_free),
-                method='trf',
-                verbose=0
-            )
-            
-            # Store the results and reconstruct the final parameter vector
-            self.fit_result = res
-            self.fit_x = self.ini.copy()
-            self.fit_x[free_indices] = res.x
-            
-            # Finalize progress bar status
-            self.progress_bar.setValue(100)
-            self.progress_bar.setFormat("Fit Completed")
-            
-        except Exception as e:
+            # Filter parameters: separate free (optimizable) parameters from fixed ones
+            free_indices = np.where(~self.is_fixed)[0]
+            x0_free = self.ini[free_indices]
+            low_free = self.limi[free_indices]
+            upp_free = self.lims[free_indices]
+        
+            # --- PROGRESS BAR LOGIC ---
             self.progress_bar.setValue(0)
-            raise e
-
+            self.progress_bar.setFormat("Iterating: %v")
+            self.iter_count = 0 
+        
+            def residuals(p_free):
+                """Objective function for least_squares: returns the difference between model and data."""
+                self.iter_count += 1
+                
+                if self.iter_count % 10 == 0:
+                    val = (self.iter_count // 10) % 101
+                    self.progress_bar.setValue(val)
+                    QApplication.processEvents()
+        
+                x_full = self.ini.copy()
+                x_full[free_indices] = p_free
+                
+                # ==========================================
+                # 1. MOTOR VARPRO (Alta Velocidad y Precisión)
+                # ==========================================
+                if self.t0_choice == 'No':
+                    use_art = self.chk_artifact.isChecked() # <--- LEEMOS LA UI
+                    if self.model_type == "Sequential":
+                        C = fit.get_concentration_matrix_sequential(x_full, TD, self.numExp, use_art)
+                    elif self.model_type == 'Damped Oscillation':
+                        C = fit.get_concentration_matrix_oscillation(x_full, TD, self.numExp, use_art)
+                    else: # Parallel
+                        C = fit.get_concentration_matrix_global(x_full, TD, self.numExp, use_art)
+                        
+                    use_nnls = getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked()
+                    F, _ = fit.eval_varpro_model(C, self.data_c.T, enforce_nonneg=use_nnls, numExp=self.numExp)
+                    
+                # ==========================================
+                # 2. MOTOR CLÁSICO (Para Chirp / t0 variable)
+                # ==========================================
+                else:
+                    if self.model_type == "Sequential":
+                        F = fit.eval_sequential_model(x_full, TD, self.numExp, numWL, self.t0_choice)
+                    elif self.model_type == 'Damped Oscillation':
+                        F = fit.eval_oscillation_model(x_full, TD, self.numExp, numWL, self.t0_choice)
+                    else:
+                        F = fit.eval_global_model(x_full, TD, self.numExp, numWL, self.t0_choice)
+                
+                return F.flatten() - data_flat
+        
+            try:
+                # Ejecutar el optimizador
+                res = least_squares(
+                    fun=residuals,
+                    x0=x0_free,
+                    bounds=(low_free, upp_free),
+                    method='trf',
+                    x_scale='jac',       
+                    loss='soft_l1',      
+                    ftol=1e-8,           
+                    xtol=1e-8,
+                    verbose=0
+                    )
+                # Guardar resultados
+                self.fit_result = res
+                self.fit_x = self.ini.copy()
+                self.fit_x[free_indices] = res.x
+                
+                # =========================================================
+                # EL "PUENTE MÁGICO": Reconstruir Amplitudes para la GUI
+                # =========================================================
+                if self.t0_choice == 'No':
+                    # Recalculamos la matriz C con los parámetros finales óptimos
+                    if self.model_type == "Sequential":
+                        C = fit.get_concentration_matrix_sequential(self.fit_x, TD, self.numExp)
+                    elif self.model_type == 'Damped Oscillation':
+                        C = fit.get_concentration_matrix_oscillation(self.fit_x, TD, self.numExp)
+                    else:
+                        C = fit.get_concentration_matrix_global(self.fit_x, TD, self.numExp)
+                        
+                    # Extraemos las amplitudes óptimas definitivas (S_T)
+                    _, S_T = fit.eval_varpro_model(C, self.data_c.T)
+                    
+                    # Calculamos dónde empiezan las amplitudes en el vector fit_x
+                    A_base = 2 + self.numExp
+                    if self.model_type == 'Damped Oscillation':
+                        A_base += 3
+                        
+                    # Inyectamos las amplitudes en formato plano.
+                    # Tu código original extraía: all_Amps = x[A_base:].reshape(numWL, numExp).T
+                    # La operación inversa exacta es S_T.T.flatten()
+                    self.fit_x[A_base:] = S_T.T.flatten()
+    
+                # Finalizar la barra de progreso
+                self.progress_bar.setValue(100)
+                self.progress_bar.setFormat("Fit Completed")
+                
+            except Exception as e:
+                self.progress_bar.setValue(0)
+                raise e
+                
     def _postprocess_fit_and_save(self):
             """Calculates statistics, extracts spectra with errors, and saves files to the /fit/ directory."""
             if self.fit_result is None:
@@ -1414,14 +2035,38 @@ class GlobalFitPanel(QDialog):
             numExp = self.numExp
     
             # --- 1. Reconstruct Fit Matrix and Residuals ---
-            if self.model_type == "Sequential":
-                F_mat = fit.eval_sequential_model(x, TD, numExp, numWL, self.t0_choice)
-            elif self.model_type == 'Damped Oscillation':
-                F_mat = fit.eval_oscillation_model(x, TD, numExp, numWL, self.t0_choice)
-            else:
-                F_mat = fit.eval_global_model(x, TD, numExp, numWL, self.t0_choice)
+            use_art = getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked()
+            
+            if self.t0_choice == 'No':
+                # Reconstrucción 100% exacta usando VarPro
+                if self.model_type == "Sequential":
+                    C = fit.get_concentration_matrix_sequential(x, TD, numExp, use_art)
+                elif self.model_type == 'Damped Oscillation':
+                    C = fit.get_concentration_matrix_oscillation(x, TD, numExp, use_art)
+                else:
+                    C = fit.get_concentration_matrix_global(x, TD, numExp, use_art)
                 
-            fitres = F_mat.T 
+                # Extraemos las amplitudes limpias directamente desde aquí
+                use_nnls = getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked()
+                F_mat, S_T_full = fit.eval_varpro_model(C, self.data_c.T, enforce_nonneg=use_nnls, numExp=numExp) 
+                self.S_T_full = S_T_full
+                # Guardamos los DAS reales e ignoramos las amplitudes del artefacto para el plot
+                if "Oscillation" in self.model_type:
+                    self.As = S_T_full[:numExp, :]
+                    self.Bs = S_T_full[numExp, :]
+                else:
+                    self.As = S_T_full[:numExp, :]
+                    
+            else:
+                # Reconstrucción Clásica (Chirp)
+                if self.model_type == "Sequential":
+                    F_mat = fit.eval_sequential_model(x, TD, numExp, numWL, self.t0_choice)
+                elif self.model_type == 'Damped Oscillation':
+                    F_mat = fit.eval_oscillation_model(x, TD, numExp, numWL, self.t0_choice)
+                else:
+                    F_mat = fit.eval_global_model(x, TD, numExp, numWL, self.t0_choice)
+
+            fitres = F_mat.T if self.t0_choice == 'Yes' else F_mat.T 
             resid = self.data_c - fitres
             
             self.fit_fitres = fitres
@@ -1441,10 +2086,21 @@ class GlobalFitPanel(QDialog):
                 
                 # Proceed only if there are free parameters and a valid Jacobian
                 if J is not None and J.size > 0 and len(free_indices) > 0:
-                    # Use Pseudo-Inverse (pinv) to prevent crashes from singular matrices
-                    # cov_free = inv(J.T * J) * MSE
-                    H = J.T @ J
-                    cov_free = np.linalg.pinv(H) 
+                    
+                    # -------------------------------------------------------------
+                    # NUEVO: Cálculo de covarianza robusto mediante SVD directo
+                    # -------------------------------------------------------------
+                    U, s, Vh = np.linalg.svd(J, full_matrices=False)
+                    
+                    # Tolerancia dinámica: filtra valores singulares demasiado pequeños
+                    # que causarían divisiones por cero o inestabilidad numérica.
+                    tol = np.finfo(float).eps * max(J.shape) * s[0]
+                    s_inv = np.zeros_like(s)
+                    s_inv[s > tol] = 1.0 / s[s > tol]
+                    
+                    # Matriz de Covarianza: V * (1/S^2) * V^T
+                    cov_free = (Vh.T * (s_inv**2)) @ Vh
+                    # -------------------------------------------------------------
                     
                     # Degrees of Freedom (DoF)
                     dof = resid.size - len(free_indices)
@@ -1452,6 +2108,7 @@ class GlobalFitPanel(QDialog):
                         mse = np.sum(resid**2) / dof
                         # Parameter Variance = Diagonal of Covariance * MSE
                         var_free = np.diagonal(cov_free) * mse
+                        
                         # Prevent negative roots due to small numerical precision errors
                         err_free = np.sqrt(np.maximum(var_free, 0))
                         
@@ -1519,8 +2176,11 @@ class GlobalFitPanel(QDialog):
                 print(f"Error extrayendo amplitudes: {e}")
     
             # --- 5. Export Results ---
-            base_dir = self.base_dir
-            outdir = os.path.join(base_dir, "fit")
+            if getattr(self, 'is_batch_running', False) and hasattr(self, 'current_batch_outdir'):
+                        outdir = self.current_batch_outdir
+            else:
+                outdir = os.path.join(self.base_dir, "fit")
+                        
             os.makedirs(outdir, exist_ok=True)
     
             try:
@@ -1563,6 +2223,12 @@ class GlobalFitPanel(QDialog):
             self._update_resid_canvas()
             self.btn_show_das.setEnabled(True)
     
+            if not getattr(self, 'is_batch_running', False):
+                self.show_results_summary()
+                rmsd = np.sqrt(np.mean(resid**2))
+                QMessageBox.information(self, "Fit Complete", 
+                                        f"Optimization finished successfully.\nRMSD: {rmsd:.2e}\nData saved in /fit/")
+                
             self.show_results_summary()
             
             # Final completion notice with RMSD
@@ -1634,12 +2300,15 @@ class GlobalFitPanel(QDialog):
             has_oscillation = hasattr(self, 'Bs') and self.Bs is not None
             
             # Figure configuration: 2 panels if oscillation exists, 1 otherwise
+            fig_das = Figure(figsize=(14, 6) if has_oscillation else (8, 6))
+            
             if has_oscillation:
-                fig_das, (ax_das, ax_osc) = plt.subplots(1, 2, figsize=(14, 6))
+                        ax_das = fig_das.add_subplot(121)
+                        ax_osc = fig_das.add_subplot(122)
             else:
-                fig_das, ax_das = plt.subplots(figsize=(8, 6))
-                ax_osc = None
-    
+                        ax_das = fig_das.add_subplot(111)
+                        ax_osc = None
+                        
             # --- 1. PLOT DAS/SAS (Exponential Components) ---
             colors = ['b', 'r', 'g', 'orange', 'm', 'c']
             markers = ['o', 's', '^', 'D', 'v', 'p'] 
@@ -1710,7 +2379,7 @@ class GlobalFitPanel(QDialog):
     
             fig_das.tight_layout()
     
-            # Save the figure
+            # Save the figure silently
             savename = "DAS_and_Oscillation.png" if has_oscillation else "DAS.png"
             try:
                 fig_das.savefig(os.path.join(outdir, savename), dpi=300)
@@ -1718,106 +2387,27 @@ class GlobalFitPanel(QDialog):
             except Exception as e:
                 print(f"Error saving DAS plot: {e}")
     
-            fig_das.show()
+            # --- LA MAGIA: Usar tu ventana personalizada para que no desaparezca ---
+            self.das_viewer = PlotViewerWindow(fig_das, title="DAS / SAS Spectra", parent=self)
+            self.das_viewer.show()
             
-            # --- 3. RESIDUALS MAP EXPORT ---
-            fig_res, ax_res = plt.subplots()
+            # --- 3. RESIDUALS MAP EXPORT (También en modo silencioso) ---
+            fig_res = Figure()
+            canvas_res = FigureCanvasAgg(fig_res)
+            ax_res = fig_res.add_subplot(111)
+            
             pcm = ax_res.pcolormesh(wl, td, self.fit_resid.T, cmap='jet', shading='auto')
             fig_res.colorbar(pcm, ax=ax_res, label='Residuals')
             ax_res.set_title("Residuals Map")
-            ax_res.set_xlabel("Wavelength / Energy")
+            ax_res.set_xlabel("Energy / Wavelength")
             ax_res.set_ylabel("Delay (ps)")
             if hasattr(self, 'yscale') and self.yscale == 'symlog':
-                 ax_res.set_yscale('symlog', linthresh=1.0)
+                 ax_res.set_yscale('symlog', linthresh=2) # Consistente con el resto
             fig_res.tight_layout()
+            
             fig_res.savefig(os.path.join(outdir, "Residuals_Map.png"), dpi=300)
-            plt.close(fig_res)
     
-            # --- 4. INTERACTIVE TRACE VIEWER ---
-            cont = True
-            while cont:
-                text_default = f"{wl[len(wl)//2]:.1f}"
-                wl_str, ok = QInputDialog.getText(self, "Check Trace", 
-                                                  f"Enter wavelength nm ({wl.min():.1f}-{wl.max():.1f}):", 
-                                                  text=text_default)
-                if not ok: break
-    
-                try:
-                    target_wl = float(wl_str)
-                    idx = np.argmin(np.abs(wl - target_wl))
-                    real_wl = wl[idx]
-    
-                    y_exp = self.data_c[idx, :]
-                    
-                    # Create a hybrid time axis for curve smoothing
-                    # Linear for early delays (rise time), Logarithmic for late decays
-                    td_lin = np.linspace(td.min(), 1.0, 1000)
-                    td_log = np.geomspace(1.0, td.max(), 1000)
-                    td_smooth = np.unique(np.concatenate((td_lin, td_log)))
-                    
-                    # Re-evaluate the kinetic model using the smooth time axis
-                    if self.model_type == "Sequential":
-                        F_mat_smooth = fit.eval_sequential_model(self.fit_x, td_smooth, self.numExp, len(wl), self.t0_choice)
-                    elif self.model_type == 'Damped Oscillation':
-                        F_mat_smooth = fit.eval_oscillation_model(self.fit_x, td_smooth, self.numExp, len(wl), self.t0_choice)
-                    else:
-                        F_mat_smooth = fit.eval_global_model(self.fit_x, td_smooth, self.numExp, len(wl), self.t0_choice)
-                        
-                    # Extract smooth fit trace
-                    y_fit_smooth = F_mat_smooth.T[idx, :] 
-
-                    fig_trace, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
-                    fig_trace.suptitle(f"Fit at {real_wl:.1f} nm", fontsize=14)
-    
-                    # Linear Plot (Early delays)
-                    ax1.plot(td, y_exp, 'bo', markersize=4, alpha=0.6, label='Data')
-                    ax1.plot(td_smooth, y_fit_smooth, 'r-', linewidth=2, label='Fit')
-                    ax1.set_xlabel("Time / ps")
-                    ax1.set_ylabel("ΔA")
-                    ax1.legend(frameon=True)
-                    ax1.grid(True, alpha=0.3)
-    
-                    # Semi-log Plot (Full decay)
-                    mask_pos_exp = td > 0
-                    mask_pos_smooth = td_smooth > 0
-                    if np.any(mask_pos_exp):
-                        ax2.plot(td[mask_pos_exp], y_exp[mask_pos_exp], 'bo', markersize=4, alpha=0.6)
-                        ax2.plot(td_smooth[mask_pos_smooth], y_fit_smooth[mask_pos_smooth], 'r-', linewidth=2)
-                        ax2.set_xscale('log')
-                        ax2.set_xlabel("Time / ps (log scale)")
-                        ax2.grid(True, which="both", ls="-", alpha=0.3)
-    
-                    plt.tight_layout()
-                    plt.show(block=True) 
-    
-                    # Export individual trace data?
-                    resp = QMessageBox.question(self, "Save Trace?",
-                                                f"Do you want to save the trace files for {real_wl:.1f} nm",
-                                                QMessageBox.Yes | QMessageBox.No)
-    
-                    if resp == QMessageBox.Yes:
-                        img_name = f"Trace_{real_wl:.1f}nm.png"
-                        fig_trace.savefig(os.path.join(outdir, img_name), dpi=300)
-    
-                        txt_name = f"Fit_{real_wl:.1f}nm.txt"
-                        txt_path = os.path.join(outdir, txt_name)
-                        
-                        # Export data as tab-separated columns, handling mismatched lengths with empty strings
-                        max_len = max(len(td), len(td_smooth))
-                        
-                        with open(txt_path, 'w') as f:
-                            f.write("TD_exp(ps)\tExp(A)\tTD_fit(ps)\tFit_smooth(A)\n")
-                            for i in range(max_len):
-                                val_td = f"{td[i]:.6e}" if i < len(td) else ""
-                                val_exp = f"{y_exp[i]:.6e}" if i < len(y_exp) else ""
-                                val_td_s = f"{td_smooth[i]:.6e}" if i < len(td_smooth) else ""
-                                val_fit_s = f"{y_fit_smooth[i]:.6e}" if i < len(y_fit_smooth) else ""
-                                f.write(f"{val_td}\t{val_exp}\t{val_td_s}\t{val_fit_s}\n")
-                    plt.close(fig_trace)
-    
-                except Exception as e:
-                    QMessageBox.critical(self, "Trace Error", f"Failed to process trace: {e}")
-    
-                if QMessageBox.question(self, "Continue?", "View another wavelength trace?",
-                                        QMessageBox.Yes|QMessageBox.No) == QMessageBox.No:
-                    cont = False
+            # Mostramos el Trace Explorer
+            self.trace_viewer = TraceExplorerWindow(self, outdir)
+            self.trace_viewer.show()
+              
