@@ -284,8 +284,14 @@ class TraceExplorerWindow(QDialog):
         self.btn_save = QPushButton("Save Trace Data")
         self.btn_save.clicked.connect(self.save_trace)
         ctrl_layout.addWidget(self.btn_save)
-        layout.addLayout(ctrl_layout)
+        
 
+        self.btn_paper_plot = QPushButton("Launch Paper Plotter")
+        self.btn_paper_plot.clicked.connect(self.open_paper_plotter)
+        self.btn_paper_plot.setStyleSheet("background-color: #3C5488; color: white;")
+        ctrl_layout.addWidget(self.btn_paper_plot)
+        
+        layout.addLayout(ctrl_layout)
         # Lienzo (Canvas) de Matplotlib
         self.fig = plt.Figure(figsize=(12, 5))
         self.canvas = FigureCanvas(self.fig)
@@ -360,134 +366,496 @@ class TraceExplorerWindow(QDialog):
         self.canvas.draw()
         
     def save_trace(self):
-        idx = self.combo_wl.currentIndex()
-        real_wl = self.wl_array[idx]
-        img_name = f"Trace_{real_wl:.1f}nm.png"
-        self.fig.savefig(os.path.join(self.outdir, img_name), dpi=300)
-        QMessageBox.information(self, "Saved", f"Trace saved successfully in:\n{self.outdir}")
- 
+            idx = self.combo_wl.currentIndex()
+            real_wl = self.wl_array[idx]
+            
+            # 1. Guardar la imagen PNG (Lógica original)
+            img_name = f"Trace_{real_wl:.1f}nm.png"
+            self.fig.savefig(os.path.join(self.outdir, img_name), dpi=300)
+            
+            # 2. Extraer tiempos y datos experimentales
+            td = self.td_array
+            y_exp = self.p.data_c[idx, :]
+            
+            # 3. Recalcular el Fit para los puntos experimentales exactos (td)
+            if self.p.t0_choice == 'No' and hasattr(self.p, 'S_T_full'):
+                use_art = getattr(self.p, 'chk_artifact', None) and self.p.chk_artifact.isChecked()
+                
+                if self.p.model_type == "Sequential":
+                    C_exp = fit.get_concentration_matrix_sequential(self.p.fit_x, td, self.p.numExp, use_art)
+                elif self.p.model_type == 'Damped Oscillation':
+                    C_exp = fit.get_concentration_matrix_oscillation(self.p.fit_x, td, self.p.numExp, use_art)
+                else:
+                    C_exp = fit.get_concentration_matrix_global(self.p.fit_x, td, self.p.numExp, use_art)
+                    
+                y_fit_exp = C_exp @ self.p.S_T_full[:, idx]
+                
+            else:
+                if self.p.model_type == "Sequential":
+                    F_mat_exp = fit.eval_sequential_model(self.p.fit_x, td, self.p.numExp, len(self.wl_array), self.p.t0_choice)
+                elif self.p.model_type == 'Damped Oscillation':
+                    F_mat_exp = fit.eval_oscillation_model(self.p.fit_x, td, self.p.numExp, len(self.wl_array), self.p.t0_choice)
+                else:
+                    F_mat_exp = fit.eval_global_model(self.p.fit_x, td, self.p.numExp, len(self.wl_array), self.p.t0_choice)
+                    
+                y_fit_exp = F_mat_exp.T[idx, :]
+                
+            # 4. Empaquetar las 3 columnas y exportar a .txt
+            txt_name = f"Trace_{real_wl:.1f}nm.txt"
+            txt_path = os.path.join(self.outdir, txt_name)
+            
+            # Unimos las columnas en una matriz (Time_Delay, Experimental, Fit)
+            matriz_guardar = np.column_stack((td, y_exp, y_fit_exp))
+            
+            # Añadimos una cabecera limpia aclarando qué es cada columna
+            cabecera = f"Wavelength: {real_wl:.1f} nm\nTime_Delay(ps)\tExperimental_Data\tFit_Data"
+            
+            np.savetxt(txt_path, matriz_guardar, fmt='%.6e', delimiter='\t', header=cabecera)
+            
+            # Mensaje de confirmación actualizado
+            QMessageBox.information(self, "Saved", f"Trace PNG and TXT data saved successfully in:\n{self.outdir}")
+    def open_paper_plotter(self):
+        """Abre la ventana interactiva de Drag & Drop para gráficos de papel."""
+        self.plotter_win = PaperPlotterWindow(self)
+        self.plotter_win.show()            
 
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox, QPushButton, QColorDialog, QScrollArea, QWidget, QGridLayout
 
 class CompareSetupDialog(QDialog):
-    """Cuadro de diálogo interactivo con Drag & Drop y selector de color."""
+    """
+    Dialog to setup parameters for comparing kinetics across multiple datasets.
+    Allows user to pick target wavelength, normalization, titles, labels, and colors.
+    """
     def __init__(self, wl_min, wl_max, default_wl, filenames, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Kinetics Comparison Setup")
-        self.resize(450, 420)
+        self.setWindowTitle("Compare Kinetics Setup")
+        self.setMinimumWidth(400)
         
-        # Intentamos usar el estilo oscuro si está en el padre, si no, uno básico
-        style = getattr(parent, 'styleSheet', lambda: "")()
-        if style: self.setStyleSheet(style)
-        
+        # We try to pull the stylesheet from the parent for consistency
+        if parent and hasattr(parent, 'styleSheet'):
+            self.setStyleSheet(parent.styleSheet())
+
+        self.filenames = filenames
+        # Default palette matching matplotlib tab10
+        self.default_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                               '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+
         layout = QVBoxLayout(self)
-        form = QFormLayout()
-        
-        # 1. Parámetros básicos
-        self.wl_input = QLineEdit(str(default_wl))
-        form.addRow(f"Wavelength (nm) [{wl_min:.1f} - {wl_max:.1f}]:", self.wl_input)
-        
-        self.chk_norm = QCheckBox("Normalize to Max = 1")
-        self.chk_norm.setChecked(True)
-        form.addRow("", self.chk_norm)
-        
+
+        # --- 1. Target Wavelength ---
+        wl_layout = QHBoxLayout()
+        wl_layout.addWidget(QLabel(f"Target Wavelength ({wl_min:.1f} - {wl_max:.1f} nm):"))
+        self.wl_input = QLineEdit(default_wl)
+        wl_layout.addWidget(self.wl_input)
+        layout.addLayout(wl_layout)
+
+        # --- 2. Custom Title ---
+        title_layout = QHBoxLayout()
+        title_layout.addWidget(QLabel("Plot Title:"))
         self.title_input = QLineEdit("Kinetics Comparison")
-        form.addRow("Plot Title:", self.title_input)
+        title_layout.addWidget(self.title_input)
+        layout.addLayout(title_layout)
+
+        # --- 3. Normalization ---
+        self.chk_normalize = QCheckBox("Normalize all traces to Max = 1")
+        layout.addWidget(self.chk_normalize)
+
+        # --- 4. Dataset Configuration (Scrollable) ---
+        layout.addWidget(QLabel("<b>Configure Datasets:</b>"))
         
-        layout.addLayout(form)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        self.grid = QGridLayout(scroll_widget)
         
-        # Colores por defecto (Paleta "tab10" de Matplotlib)
-        self.default_colors = [
-            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
-            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
-        ]
-        
-        # 2. Lista interactiva
-        layout.addWidget(QLabel("<b>Legend Labels & Order:</b><br/><i>(Drag to reorder, Double-click to edit)</i>"))
-        
-        self.list_widget = QListWidget()
-        self.list_widget.setDragDropMode(QAbstractItemView.InternalMove)
-        self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.list_widget.setAlternatingRowColors(True)
-        
-        for original_idx, name in enumerate(filenames):
-            item = QListWidgetItem(name)
-            item.setFlags(item.flags() | Qt.ItemIsEditable | Qt.ItemIsDragEnabled | Qt.ItemIsSelectable)
+        # Headers
+        self.grid.addWidget(QLabel("Include"), 0, 0)
+        self.grid.addWidget(QLabel("Legend Label"), 0, 1)
+        self.grid.addWidget(QLabel("Color"), 0, 2)
+
+        self.dataset_controls = []
+        for i, fname in enumerate(filenames):
+            chk = QCheckBox()
+            chk.setChecked(True)
             
-            # Guardamos el índice original
-            item.setData(Qt.UserRole, original_idx)
+            label_input = QLineEdit(fname)
             
-            # Asignamos y guardamos el color
-            color_hex = self.default_colors[original_idx % len(self.default_colors)]
-            item.setData(Qt.UserRole + 1, color_hex)
-            item.setIcon(self._create_color_icon(color_hex))
+            color_btn = QPushButton()
+            color = self.default_colors[i % len(self.default_colors)]
+            color_btn.setStyleSheet(f"background-color: {color}; border: 1px solid gray; width: 25px; height: 15px;")
+            color_btn.setProperty("color_val", color)
             
-            self.list_widget.addItem(item)
-            
-        layout.addWidget(self.list_widget)
+            # Lambda needs default argument to capture current button in loop
+            color_btn.clicked.connect(lambda checked, btn=color_btn: self.choose_color(btn))
+
+            self.grid.addWidget(chk, i+1, 0)
+            self.grid.addWidget(label_input, i+1, 1)
+            self.grid.addWidget(color_btn, i+1, 2)
+
+            self.dataset_controls.append((chk, label_input, color_btn, i))
+
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
+
+        # --- 5. Buttons ---
+        btn_layout = QHBoxLayout()
+        btn_ok = QPushButton("Plot Comparison")
+        btn_ok.clicked.connect(self.accept)
+        btn_ok.setStyleSheet("background-color: #0078D7; color: white;")
         
-        # 3. Botón para cambiar el color
-        btn_color = QPushButton("🎨 Change Selected Color")
-        btn_color.clicked.connect(self.change_item_color)
-        layout.addWidget(btn_color)
-            
-        # 4. Botones de acción principales
-        btns = QHBoxLayout()
         btn_cancel = QPushButton("Cancel")
         btn_cancel.clicked.connect(self.reject)
         
-        btn_ok = QPushButton("Plot")
-        btn_ok.clicked.connect(self.accept)
-        
-        btns.addWidget(btn_cancel)
-        btns.addWidget(btn_ok)
-        layout.addLayout(btns)
-        
-    def _create_color_icon(self, color_hex):
-        """Dibuja un pequeño cuadrado de color para ponerlo junto al nombre."""
-        pixmap = QPixmap(16, 16)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
-        painter.setBrush(QColor(color_hex))
-        painter.setPen(QColor(0, 0, 0)) # Borde negro
-        painter.drawRect(0, 0, 15, 15)
-        painter.end()
-        return QIcon(pixmap)
-        
-    def change_item_color(self):
-        """Abre la paleta de colores y actualiza el item seleccionado."""
-        selected_items = self.list_widget.selectedItems()
-        if not selected_items:
-            return
-            
-        item = selected_items[0]
-        current_color = item.data(Qt.UserRole + 1)
-        
-        # Abrir el selector de color nativo
-        color = QColorDialog.getColor(QColor(current_color), self, "Select Curve Color")
-        
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+    def choose_color(self, btn):
+        """Opens a color picker and updates the button's stored color."""
+        color = QColorDialog.getColor()
         if color.isValid():
-            new_hex = color.name() # Ej: '#ff0000'
-            item.setData(Qt.UserRole + 1, new_hex)
-            item.setIcon(self._create_color_icon(new_hex))
-        
+            hex_color = color.name()
+            btn.setStyleSheet(f"background-color: {hex_color}; border: 1px solid gray; width: 25px; height: 15px;")
+            btn.setProperty("color_val", hex_color)
+
     def get_data(self):
-        """Devuelve todos los datos, incluyendo la lista de colores final."""
+        """Returns the tuple expected by the compare_kinetics function."""
         try:
-            wl = float(self.wl_input.text())
+            target_wl = float(self.wl_input.text())
         except ValueError:
-            wl = None 
-            
+            target_wl = None
+
+        normalize = self.chk_normalize.isChecked()
+        custom_title = self.title_input.text()
+
         custom_labels = []
         ordered_indices = []
         custom_colors = []
+
+        # Iterate over checked datasets
+        for chk, label_input, color_btn, orig_idx in self.dataset_controls:
+            if chk.isChecked():
+                custom_labels.append(label_input.text())
+                ordered_indices.append(orig_idx)
+                custom_colors.append(color_btn.property("color_val"))
+
+        return target_wl, normalize, custom_title, custom_labels, ordered_indices, custom_colors
+    
+class PaperPlotterWindow(QDialog):
+    """
+    Advanced Drag & Drop Publication-Quality Plotter for Kinetics Traces.
+    Funciona de forma 100% autónoma. Permite al usuario personalizar 
+    las dimensiones, paletas y cropear el Eje Y (ΔA) con precisión milimétrica.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Publication-Quality Kinetics Plotter (Standalone Mode)")
+        self.resize(980, 680)
+        self.setAcceptDrops(True) 
         
-        for row in range(self.list_widget.count()):
-            item = self.list_widget.item(row)
-            custom_labels.append(item.text())
-            ordered_indices.append(item.data(Qt.UserRole))
-            custom_colors.append(item.data(Qt.UserRole + 1)) # Extraemos el color de cada uno
+        if parent and hasattr(parent, 'styleSheet'):
+            self.setStyleSheet(parent.styleSheet())
             
-        return wl, self.chk_norm.isChecked(), self.title_input.text(), custom_labels, ordered_indices, custom_colors
+        self.file_data = [] 
+        self.nature_colors = ['#E64B35', '#4DBBD5', '#00A087', '#3C5488', '#F39B7F', '#8491B4', '#91D1C2', '#DC0000']
+        
+        self.initUI()
+        
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        top_layout = QHBoxLayout()
+        
+        self.drop_label = QLabel("📥 ARRASTRA AQUÍ TUS .TXT DE CINÉTICAS (CON O SIN AJUSTE)")
+        self.drop_label.setAlignment(Qt.AlignCenter)
+        self.drop_label.setFrameShape(QLabel.StyledPanel)
+        self.drop_label.setFrameShadow(QLabel.Sunken)
+        self.drop_label.setMinimumHeight(70)
+        self.drop_label.setStyleSheet("""
+            QLabel {
+                background-color: #2D3238;
+                color: #A0AAB5;
+                border: 2px dashed #3C5488;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 11pt;
+            }
+        """)
+        top_layout.addWidget(self.drop_label, 3)
+        
+        ctrl_group = QGroupBox("Estética de Publicación")
+        ctrl_form = QFormLayout(ctrl_group)
+        
+        # Selector de paleta de colores
+        self.combo_palette = QComboBox()
+        self.combo_palette.addItems([
+            "Scientific (Nature)", 
+            "Qualitative (Tab10)", 
+            "Vibrant (Set1)", 
+            "Sequential (Viridis)", 
+            "Sequential (Plasma)",
+            "Cool / Warm"
+        ])
+        self.combo_palette.currentIndexChanged.connect(self.replotted)
+        ctrl_form.addRow("Paleta de Colores:", self.combo_palette)
+        
+        # Controles de dimensiones de la figura
+        self.spin_width = QDoubleSpinBox()
+        self.spin_width.setRange(3.0, 15.0)
+        self.spin_width.setValue(7.0)  
+        self.spin_width.setSingleStep(0.5)
+        self.spin_width.setSuffix(" in (Ancho)")
+        self.spin_width.valueChanged.connect(self.update_fig_size)
+        ctrl_form.addRow("Ancho Figura:", self.spin_width)
+        
+        self.spin_height = QDoubleSpinBox()
+        self.spin_height.setRange(2.0, 10.0)
+        self.spin_height.setValue(4.5)  
+        self.spin_height.setSingleStep(0.5)
+        self.spin_height.setSuffix(" in (Alto)")
+        self.spin_height.valueChanged.connect(self.update_fig_size)
+        ctrl_form.addRow("Alto Figura:", self.spin_height)
+        
+        self.combo_scale = QComboBox()
+        self.combo_scale.addItems(["Linear", "SymLog"])
+        self.combo_scale.currentIndexChanged.connect(self.replotted)
+        ctrl_form.addRow("Escala Eje X:", self.combo_scale)
+        
+        self.spin_thresh = QDoubleSpinBox()
+        self.spin_thresh.setRange(0.01, 10.0)
+        self.spin_thresh.setValue(1.0)
+        self.spin_thresh.setSingleStep(0.5)
+        self.spin_thresh.valueChanged.connect(self.replotted)
+        ctrl_form.addRow("Linthresh (ps):", self.spin_thresh)
+        
+        self.chk_norm = QCheckBox("Normalizar amplitudes individuales")
+        self.chk_norm.stateChanged.connect(self.replotted)
+        ctrl_form.addRow(self.chk_norm)
+        
+        self.chk_no_negatives = QCheckBox("Omitir visualmente tiempos < 0")
+        self.chk_no_negatives.setChecked(True) 
+        self.chk_no_negatives.stateChanged.connect(self.replotted)
+        ctrl_form.addRow(self.chk_no_negatives)
+
+        # --- NUEVO: HERRAMIENTA MANUAL DE CROP PARA EL EJE Y (ΔA) ---
+        self.chk_auto_y = QCheckBox("Eje Y (ΔA) Automático")
+        self.chk_auto_y.setChecked(True)
+        self.chk_auto_y.stateChanged.connect(self.toggle_y_inputs)
+        ctrl_form.addRow(self.chk_auto_y)
+        
+        self.spin_ymin = QDoubleSpinBox()
+        self.spin_ymin.setRange(-10.0, 10.0)
+        self.spin_ymin.setValue(-0.02)
+        self.spin_ymin.setSingleStep(0.005)
+        self.spin_ymin.setDecimals(3)
+        self.spin_ymin.setEnabled(False)
+        self.spin_ymin.valueChanged.connect(self.replotted)
+        ctrl_form.addRow("Crop Y Min:", self.spin_ymin)
+        
+        self.spin_ymax = QDoubleSpinBox()
+        self.spin_ymax.setRange(-10.0, 10.0)
+        self.spin_ymax.setValue(0.20)
+        self.spin_ymax.setSingleStep(0.005)
+        self.spin_ymax.setDecimals(3)
+        self.spin_ymax.setEnabled(False)
+        self.spin_ymax.valueChanged.connect(self.replotted)
+        ctrl_form.addRow("Crop Y Max:", self.spin_ymax)
+        # -------------------------------------------------------------
+        
+        self.btn_clear = QPushButton("🗑️ Limpiar Gráfico")
+        self.btn_clear.clicked.connect(self.clear_data)
+        ctrl_form.addRow(self.btn_clear)
+        
+        self.btn_export_fig = QPushButton("💾 Exportar Figura (600 DPI)")
+        self.btn_export_fig.clicked.connect(self.export_figure)
+        self.btn_export_fig.setStyleSheet("background-color: #4A8C4A; color: white; font-weight: bold;")
+        ctrl_form.addRow(self.btn_export_fig)
+        
+        top_layout.addWidget(ctrl_group, 2)
+        layout.addLayout(top_layout)
+        
+        self.fig = Figure(figsize=(self.spin_width.value(), self.spin_height.value()), dpi=100)
+        self.canvas = FigureCanvas(self.fig)
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        
+        layout.addWidget(self.toolbar)
+        layout.addWidget(self.canvas)
+        
+        self.ax = self.fig.add_subplot(111)
+        self.setup_paper_style()
+        
+    def toggle_y_inputs(self):
+        """Activa o desactiva las cajas de Crop de la señal según el modo elegido."""
+        auto_mode = self.chk_auto_y.isChecked()
+        self.spin_ymin.setEnabled(not auto_mode)
+        self.spin_ymax.setEnabled(not auto_mode)
+        self.replotted()
+
+    def update_fig_size(self):
+        w = self.spin_width.value()
+        h = self.spin_height.value()
+        self.fig.set_size_inches(w, h)
+        self.canvas.draw_idle() 
+        
+    def setup_paper_style(self):
+        self.ax.clear()
+        self.ax.tick_params(direction='in', top=True, right=True, labelsize=11, width=1.2, length=6)
+        for spine in self.ax.spines.values():
+            spine.set_linewidth(1.2)
+        self.ax.set_xlabel("Time Delay / ps", fontsize=13, fontname="Arial", fontweight='bold')
+        self.ax.set_ylabel("ΔA (a.u.)", fontsize=13, fontname="Arial", fontweight='bold')
+        self.ax.grid(False)
+        
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            
+    def dropEvent(self, event):
+        files_added = 0
+        for url in event.mimeData().urls():
+            file_path = str(url.toLocalFile())
+            if file_path.lower().endswith('.txt'):
+                if self.parse_trace_file(file_path):
+                    files_added += 1
+        if files_added > 0:
+            self.file_data.sort(key=lambda x: x['wl'])
+            self.replotted()
+            
+    def parse_trace_file(self, path):
+        try:
+            wl_val = None
+            filename = os.path.basename(path)
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if "wavelength" in line.lower():
+                        match_h = re.search(r"([\d.]+)", line)
+                        if match_h:
+                            wl_val = float(match_h.group(1))
+                            break
+            
+            if wl_val is None:
+                match_fn = re.search(r"([\d.]+)\s*nm", filename, re.IGNORECASE)
+                if match_fn:
+                    wl_val = float(match_fn.group(1))
+            
+            if wl_val is None:
+                wl_val = 0.0 
+                
+            wl_rounded = int(round(wl_val, -1))
+            
+            raw_data = np.loadtxt(path)
+            if raw_data.ndim != 2 or raw_data.shape[1] < 2:
+                return False 
+                
+            td = raw_data[:, 0]
+            y_exp = raw_data[:, 1]
+            y_fit = raw_data[:, 2] if raw_data.shape[1] >= 3 else None
+            
+            self.file_data.append({
+                'wl': wl_rounded,
+                'td': td,
+                'exp': y_exp,
+                'fit': y_fit,
+                'filename': filename
+            })
+            return True
+        except Exception as e:
+            print(f"Error parseando: {e}")
+            return False
+            
+    def replotted(self):
+        self.setup_paper_style()
+        if not self.file_data:
+            self.canvas.draw_idle()
+            return
+            
+        is_symlog = self.combo_scale.currentText() == "SymLog"
+        norm_indep = self.chk_norm.isChecked()
+        hide_negatives = self.chk_no_negatives.isChecked()
+        palette_choice = self.combo_palette.currentText()
+        
+        N = len(self.file_data)
+        
+        generated_colors = []
+        if palette_choice == "Scientific (Nature)":
+            generated_colors = [self.nature_colors[i % len(self.nature_colors)] for i in range(N)]
+        else:
+            cmap_map = {
+                "Qualitative (Tab10)": "tab10",
+                "Vibrant (Set1)": "Set1",
+                "Sequential (Viridis)": "viridis",
+                "Sequential (Plasma)": "plasma",
+                "Cool / Warm": "coolwarm"
+            }
+            cmap = plt.get_cmap(cmap_map[palette_choice])
+            
+            if palette_choice in ["Qualitative (Tab10)", "Vibrant (Set1)"]:
+                generated_colors = [cmap(i % cmap.N) for i in range(N)]
+            else:
+                if N == 1:
+                    generated_colors = [cmap(0.5)]
+                else:
+                    generated_colors = [cmap(val) for val in np.linspace(0.0, 0.85, N)]
+
+        max_td_found = -1e10
+        min_td_found = 1e10
+
+        for i, data in enumerate(self.file_data):
+            color = generated_colors[i]
+            td = data['td']
+            y_exp = data['exp']
+            y_fit = data['fit']
+            wl = data['wl']
+            
+            label_text = f"{wl} nm" if wl > 0 else data['filename']
+            
+            max_td_found = max(max_td_found, np.max(td))
+            min_td_found = min(min_td_found, np.min(td))
+            
+            if norm_indep:
+                max_val = max(np.max(np.abs(y_exp)), 1e-10)
+                y_exp = y_exp / max_val
+                if y_fit is not None:
+                    y_fit = y_fit / max_val
+            
+            self.ax.plot(td, y_exp, 'o', color=color, markersize=4, alpha=0.4, 
+                         markeredgewidth=1.0, label=label_text)
+            
+            if y_fit is not None:
+                self.ax.plot(td, y_fit, '-', color=color, linewidth=2.0)
+            
+        if is_symlog:
+            self.ax.set_xscale('symlog', linthresh=self.spin_thresh.value())
+            
+        if hide_negatives:
+            self.ax.set_xlim(0.0, max_td_found)
+        else:
+            self.ax.set_xlim(min_td_found, max_td_found)
+            
+        # --- APLICACIÓN DEL CROP PERSONALIZADO DEL EJE Y ---
+        if not self.chk_auto_y.isChecked():
+            self.ax.set_ylim(self.spin_ymin.value(), self.spin_ymax.value())
+        # ---------------------------------------------------
+            
+        self.ax.legend(frameon=True, framealpha=0.0, edgecolor='none', fontsize=10, loc='best')
+        self.fig.tight_layout()
+        self.canvas.draw_idle()
+        
+    def clear_data(self):
+        self.file_data = []
+        self.replotted()
+        
+    def export_figure(self):
+        if not self.file_data:
+            return
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Publication Figure", "", 
+            "PDF Vector Graphic (*.pdf);;PNG High-Resolution Image (*.png);;TIFF Image (*.tiff)"
+        )
+        if save_path:
+            self.update_fig_size()
+            self.fig.savefig(save_path, dpi=600, bbox_inches='tight')
+            QMessageBox.information(self, "Export Successful", f"Gráfico exportado a alta resolución con las dimensiones seleccionadas.")            
 class GlobalFitPanel(QDialog):
     """
     Global Fit Analysis Panel.
@@ -645,7 +1013,7 @@ class GlobalFitPanel(QDialog):
         self.spin_bl = QSpinBox()
         self.spin_bl.setRange(0, 500)
         self.spin_bl.setValue(0)
-        self.spin_bl.valueChanged.connect(self.apply_baseline_correction) 
+        self.spin_bl.valueChanged.connect(lambda val: self._preview_data_processing())
         form_prep.addRow("Baseline Pts:", self.spin_bl)
 
         # WL Ranges
@@ -682,6 +1050,15 @@ class GlobalFitPanel(QDialog):
         self.chk_zero_neg.setChecked(False) 
         form_prep.addRow(self.chk_zero_neg)
         
+        # ---  Botón de Normalización ---
+        self.chk_norm_data = QCheckBox("Normalize Data Matrix (Max |ΔA| = 1)")
+        self.chk_norm_data.setChecked(False)
+        
+        # Conectamos el clic directamente al motor de pre-procesamiento
+        self.chk_norm_data.stateChanged.connect(lambda state: self._preview_data_processing())
+        
+        form_prep.addRow(self.chk_norm_data)
+        # -------------------------------------------
         # Preview Button
         self.btn_preview = QPushButton("Apply and Preview")
         self.btn_preview.clicked.connect(self._preview_data_processing) 
@@ -775,7 +1152,37 @@ class GlobalFitPanel(QDialog):
         l.addWidget(self.btn_show_das)
 
         l.addStretch()
-                
+        
+        l.addSpacing(15)
+        self.btn_standalone_plotter = QPushButton("📊 Open Paper Plotter (Saved Traces)")
+        self.btn_standalone_plotter.clicked.connect(self.open_standalone_plotter)
+        self.btn_standalone_plotter.setStyleSheet("""
+            QPushButton {
+                background-color: #3C5488; 
+                color: white; 
+                font-weight: bold; 
+                padding: 10px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #4A66A0; }
+        """)
+        l.addWidget(self.btn_standalone_plotter)     
+        
+        self.btn_sasdas_plotter = QPushButton("Open SAS/DAS Plotter (Spectra)")
+        self.btn_sasdas_plotter.clicked.connect(self.open_sasdas_plotter)
+        self.btn_sasdas_plotter.setStyleSheet("background-color: #00A087; color: white; font-weight: bold; padding: 8px; border-radius: 4px;")
+        l.addWidget(self.btn_sasdas_plotter)
+        
+    def open_standalone_plotter(self):
+        """Lanza el módulo de gráficos de publicación de forma 100% independiente."""
+        self.standalone_plotter = PaperPlotterWindow(self)
+        self.standalone_plotter.show()    
+        
+    def open_sasdas_plotter(self):
+        """Lanza el módulo de maquetación de espectros SAS/DAS de forma autónoma."""
+        self.sasdas_plotter = SASDASPlotterWindow(self)
+        self.sasdas_plotter.show()
+        
     def run_svd(self):
         """Executes Singular Value Decomposition (SVD) on the active dataset to identify components."""
         if self.data_c is None:
@@ -841,7 +1248,7 @@ class GlobalFitPanel(QDialog):
             ax2.plot(wl, self.svd_U[:, i], label=f"Comp {i+1}")
         
         ax2.set_title(f"First {n_mostrar} Spectral Components")
-        ax2.set_xlabel("Energy / Wavelength")
+        ax2.set_xlabel("Wavelength (nm)")
         ax2.axhline(0, color='black', lw=1, alpha=0.5)
         ax2.legend(frameon=True)
         
@@ -1052,28 +1459,32 @@ class GlobalFitPanel(QDialog):
         self.TD = getattr(p, "TD", None)
          
         self.apply_baseline_correction()
-
+        
     def apply_baseline_correction(self):
-        """Performs a baseline correction based on the spinbox value and replots the data."""
-        if self.data_raw is None:
-            return
-    
-        n_pts = self.spin_bl.value()
+            """Performs a baseline correction based on the spinbox value and replots the data."""
+            if self.data_raw is None:
+                return
         
-        temp_data = self.data_raw.copy()
+            n_pts = self.spin_bl.value()
+            temp_data = self.data_raw.copy()
+            
+            if n_pts > 0:
+                if temp_data.shape[1] >= n_pts:
+                    # Calculate the baseline (average of the first n columns of time)
+                    baseline = np.mean(temp_data[:, :n_pts], axis=1, keepdims=True)
+                    temp_data = temp_data - baseline
+                else:
+                    print("Warning: Not enough points for baseline.")
         
-        if n_pts > 0:
-            if temp_data.shape[1] >= n_pts:
-                # Calculate the baseline (average of the first n columns of time)
-                # assuming a shape [NumWL, NumTD] or [NumTD,NumWL] 
-                baseline = np.mean(temp_data[:, :n_pts], axis=1, keepdims=True)
-                temp_data = temp_data - baseline
-            else:
-                print("Warning: Not enough points for baseline.")
-    
-        
-        self.data_c = temp_data                     
-        self._update_exp_canvas()
+            # --- NUEVO: Respetar la normalización "en vivo" ---
+            if hasattr(self, 'chk_norm_data') and self.chk_norm_data.isChecked():
+                max_abs_val = np.nanmax(np.abs(temp_data))
+                if max_abs_val != 0:
+                    temp_data = temp_data / max_abs_val
+            # --------------------------------------------------
+            
+            self.data_c = temp_data                     
+            self._update_exp_canvas()
         
 
     def _update_ui_limits_from_data(self):
@@ -1403,11 +1814,23 @@ class GlobalFitPanel(QDialog):
                     temp_WL = temp_WL[:new_len*b_size]
                     temp_WL = temp_WL.reshape(new_len, b_size).mean(axis=1)
 
+            
+            # --- 5. NORMALIZACIÓN ---
+            if hasattr(self, 'chk_norm_data') and self.chk_norm_data.isChecked():
+                # Forzamos conversión a float por si los conteos son enteros
+                temp_data = temp_data.astype(float) 
+                max_abs_val = np.nanmax(np.abs(temp_data))
+                if max_abs_val != 0:
+                    temp_data = temp_data / max_abs_val
+            # ------------------------
+            
             # Guardar el resultado procesado
             self.data_c_list.append(temp_data)
             self.wl_proc_list.append(temp_WL)
             self.td_proc_list.append(temp_TD)
 
+    
+                    
         # Actualizar variables del modelo global usando el primer archivo
         if self.data_c_list:
             self.data_c = self.data_c_list[0]
@@ -1449,7 +1872,7 @@ class GlobalFitPanel(QDialog):
                                              vmin=vmin_val, vmax=vmax_val)
                     
                     ax_temp.set_title(f"Processed: {base_name}", fontsize=10)
-                    ax_temp.set_xlabel("Energy / Wavelength")
+                    ax_temp.set_xlabel("Wavelength (nm)")
                     ax_temp.set_ylabel("Delay (ps)")
                     
                     # Aplicar escala (SymLog o Lineal) según la interfaz
@@ -1511,7 +1934,7 @@ class GlobalFitPanel(QDialog):
                                                       vmin=self.exp_vmin, vmax=self.exp_vmax)
                             
                 # Set axis labels
-                self.ax_exp.set_xlabel("Energy / Wavelength")
+                self.ax_exp.set_xlabel("Wavelength (nm)")
                 self.ax_exp.set_ylabel("Delay (ps)")
                 
                 # --- APPLY Y-AXIS SCALE (CONDITIONAL) ---
@@ -1592,7 +2015,7 @@ class GlobalFitPanel(QDialog):
                                                       vmin=vmin, vmax=vmax)
                 
                 self.ax_fit.set_title("Fit Reconstructed")
-                self.ax_fit.set_xlabel("Energy / Wavelength")
+                self.ax_fit.set_xlabel("Wavelength (nm)")
                 self.ax_fit.set_ylabel("Delay (ps)")
                 
                 # --- APPLY Y-AXIS SCALE (CONDITIONAL) ---
@@ -1643,12 +2066,13 @@ class GlobalFitPanel(QDialog):
                                                           vmin=vmin, vmax=vmax)
                 
                 self.ax_resid.set_title("Residuals")
-                self.ax_resid.set_xlabel("Energy / Wavelength")
+                self.ax_resid.set_xlabel("Wavelength (nm)")
                 self.ax_resid.set_ylabel("Delay (ps)")
                 
                 # --- APPLY Y-AXIS SCALE (CONDITIONAL) ---
                 if hasattr(self, 'yscale') and self.yscale == 'symlog':
                     self.ax_resid.set_yscale('symlog', linthresh=2)
+                    
                 else:
                     self.ax_resid.set_yscale('linear')
                 if hasattr(self, 'ax_exp'):
@@ -2132,7 +2556,7 @@ class GlobalFitPanel(QDialog):
                 self.extracted_taus = np.zeros(numExp)
                 self.extracted_errtaus = np.zeros(numExp)
     
-            # --- 4. Extract Amplitudes and their Errors ---
+        # --- 4. Extract Amplitudes and their Errors ---
             self.As = np.zeros((numExp, numWL))
             self.errAs = np.zeros((numExp, numWL))
             self.Bs = None      # To store Oscillation Amplitude Spectrum
@@ -2140,40 +2564,66 @@ class GlobalFitPanel(QDialog):
             
             try:
                 if self.t0_choice == 'No':
+                    # -----------------------------------------------------------------
+                    # FIX VARPRO: Cálculo analítico de errores para parámetros lineales
+                    # -----------------------------------------------------------------
+                    # 'C' y 'self.S_T_full' ya fueron calculados en el paso 1 de esta función
+                    
+                    # 1. Pseudo-inversa de (C^T * C)
+                    pseudo_inv_C = np.linalg.pinv(C.T @ C)
+                    diag_cov = np.diagonal(pseudo_inv_C) # Shape: (n_species,)
+                    
+                    # 2. Calcular el Mean Squared Error (MSE) por longitud de onda
+                    # resid tiene shape (numWL, numTD). Evaluamos la varianza en el tiempo.
+                    dof_linear = resid.shape[1] - C.shape[1]
+                    if dof_linear > 0:
+                        mse_per_wl = np.sum(resid**2, axis=1) / dof_linear # Shape: (numWL,)
+                    else:
+                        mse_per_wl = np.zeros(numWL)
+                        
+                    # 3. Matriz de errores (Propagación: covarianza * MSE)
+                    # Resultado: Matriz de shape (n_species, numWL)
+                    err_S_T_full = np.sqrt(np.maximum(np.outer(diag_cov, mse_per_wl), 0))
+                    
                     if "Oscillation" in self.model_type:
-                        # Structure: [w, t0, taus..., alpha, omega, phi, ...]
+                        self.As = self.S_T_full[:numExp, :]
+                        self.errAs = err_S_T_full[:numExp, :]
+                        
+                        self.Bs = self.S_T_full[numExp, :]
+                        self.errBs = err_S_T_full[numExp, :]
+                        self.t0s = np.full(numWL, x[1])
+                    else:
+                        # Modelo Estándar (Parallel/Sequential)
+                        self.As = self.S_T_full[:numExp, :]
+                        self.errAs = err_S_T_full[:numExp, :]
+                        self.t0s = np.full(numWL, x[1])
+    
+                else:
+                    # Reconstrucción Clásica (Chirp) donde el optimizador sí ve las amplitudes
+                    if "Oscillation" in self.model_type:
                         base_A = 2 + numExp + 3
                         params_per_wl = numExp + 1 
                         
-                        # Extract all local params (A's + B)
                         all_local = x[base_A:]
                         all_local_err = self.ci[base_A:]
                         
-                        # Reshape to (numWL, params_per_wl)
                         mat_local = all_local.reshape(numWL, params_per_wl)
                         mat_err = all_local_err.reshape(numWL, params_per_wl)
                         
-                        # Separate A's (Decays) and B (Oscillation)
                         self.As = mat_local[:, :numExp].T
                         self.errAs = mat_err[:, :numExp].T
                         
-                        # The last column is B (Oscillation Amplitude)
                         self.Bs = mat_local[:, numExp]
                         self.errBs = mat_err[:, numExp]
-                        
                         self.t0s = np.full(numWL, x[1])
-    
                     else:
-                        # Standard Model: Extract amplitudes for each lifetime
                         base_A = 2 + numExp
                         self.As = x[base_A:].reshape(numWL, numExp).T
                         self.errAs = self.ci[base_A:].reshape(numWL, numExp).T
                         self.t0s = np.full(numWL, x[1])
-                else:
-                    pass # Chirp-specific logic could be added here
-                    
+                        
             except Exception as e:
-                print(f"Error extrayendo amplitudes: {e}")
+                print(f"Error extrayendo amplitudes o calculando errores: {e}")
     
             # --- 5. Export Results ---
             if getattr(self, 'is_batch_running', False) and hasattr(self, 'current_batch_outdir'):
@@ -2202,17 +2652,27 @@ class GlobalFitPanel(QDialog):
                 
                 # Write amplitudes and errors to a tab-separated text file
                 with open(os.path.join(outdir, "Amplitudes.txt"), 'w') as f:
-                    header_list = [f"A{i+1}\tErrA{i+1}" for i in range(numExp)]
-                    f.write("WL(nm)\t" + "\t".join(header_list) + "\n")
-                    for i in range(numWL):
-                        line_data = [f"{WL[i]:.2f}"]
-                        for j in range(numExp):
-                            val = self.As[j, i] if j < self.As.shape[0] else 0
-                            err = self.errAs[j, i] if j < self.errAs.shape[0] else 0
-                            line_data.append(f"{val:.6e}")
-                            line_data.append(f"{err:.6e}")
-                        f.write("\t".join(line_data) + "\n")
-         
+                                    # Inyectamos las constantes de tiempo globales en forma de comentario (#) para no romper la tabla
+                                    f.write("# === Global Fit Lifetimes (Taus) & Errors Summary ===\n")
+                                    tau_meta = []
+                                    for k in range(numExp):
+                                        t_val = self.extracted_taus[k] if (hasattr(self, 'extracted_taus') and k < len(self.extracted_taus)) else 0.0
+                                        t_err = self.extracted_errtaus[k] if (hasattr(self, 'extracted_errtaus') and k < len(self.extracted_errtaus)) else 0.0
+                                        tau_meta.append(f"tau{k+1}={t_val:.4f}+-{t_err:.4f}")
+                                    f.write("# " + ", ".join(tau_meta) + "\n")
+                                    f.write("# ====================================================\n")
+                                    
+                                    # Escritura normal de las columnas de amplitudes
+                                    header_list = [f"A{i+1}\tErrA{i+1}" for i in range(numExp)]
+                                    f.write("WL(nm)\t" + "\t".join(header_list) + "\n")
+                                    for i in range(numWL):
+                                        line_data = [f"{WL[i]:.2f}"]
+                                        for j in range(numExp):
+                                            val = self.As[j, i] if j < self.As.shape[0] else 0
+                                            err = self.errAs[j, i] if j < self.errAs.shape[0] else 0
+                                            line_data.append(f"{val:.6e}")
+                                            line_data.append(f"{err:.6e}")
+                                        f.write("\t".join(line_data) + "\n")
                 print(f"Results successfully exported to: {outdir}")
     
             except Exception as e:
@@ -2399,7 +2859,7 @@ class GlobalFitPanel(QDialog):
             pcm = ax_res.pcolormesh(wl, td, self.fit_resid.T, cmap='jet', shading='auto')
             fig_res.colorbar(pcm, ax=ax_res, label='Residuals')
             ax_res.set_title("Residuals Map")
-            ax_res.set_xlabel("Energy / Wavelength")
+            ax_res.set_xlabel("Wavelength (nm)")
             ax_res.set_ylabel("Delay (ps)")
             if hasattr(self, 'yscale') and self.yscale == 'symlog':
                  ax_res.set_yscale('symlog', linthresh=2) # Consistente con el resto
@@ -2410,4 +2870,340 @@ class GlobalFitPanel(QDialog):
             # Mostramos el Trace Explorer
             self.trace_viewer = TraceExplorerWindow(self, outdir)
             self.trace_viewer.show()
-              
+            
+
+
+class SASDASPlotterWindow(QDialog):
+    """
+    Advanced Drag & Drop Publication-Quality Plotter for SAS/DAS Spectra.
+    Carga archivos multi-columna emparejando amplitudes con sus errores de forma clásica 
+    e incluye controles dinámicos para modificar el tamaño de los puntos, las tapitas de error (capsize)
+    y formatea la leyenda con precisión de dos decimales (τ = X.XX ± Y.YY ps).
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Publication-Quality SAS/DAS Plotter (Spectra Mode)")
+        self.resize(980, 680)
+        self.setAcceptDrops(True) 
+        
+        if parent and hasattr(parent, 'styleSheet'):
+            self.setStyleSheet(parent.styleSheet())
+            
+        self.spectra_data = [] 
+        self.nature_colors = ['#E64B35', '#4DBBD5', '#00A087', '#3C5488', '#F39B7F', '#8491B4', '#91D1C2', '#DC0000']
+        
+        self.initUI()
+        
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        top_layout = QHBoxLayout()
+        
+        self.drop_label = QLabel("📥 DEJA CAER AQUÍ TUS ARCHIVOS DE ESPECTROS (DAS / SAS / AMPLITUDES)")
+        self.drop_label.setAlignment(Qt.AlignCenter)
+        self.drop_label.setFrameShape(QLabel.StyledPanel)
+        self.drop_label.setFrameShadow(QLabel.Sunken)
+        self.drop_label.setMinimumHeight(70)
+        self.drop_label.setStyleSheet("""
+            QLabel {
+                background-color: #2D3238;
+                color: #A0AAB5;
+                border: 2px dashed #00A087;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 11pt;
+            }
+        """)
+        top_layout.addWidget(self.drop_label, 3)
+        
+        ctrl_group = QGroupBox("Estética del Espectro")
+        ctrl_form = QFormLayout(ctrl_group)
+        
+        # Selector de paletas cromáticas
+        self.combo_palette = QComboBox()
+        self.combo_palette.addItems([
+            "Scientific (Nature)", 
+            "Qualitative (Tab10)", 
+            "Vibrant (Set1)", 
+            "Sequential (Viridis)", 
+            "Sequential (Plasma)",
+            "Cool / Warm"
+        ])
+        self.combo_palette.currentIndexChanged.connect(self.replotted)
+        ctrl_form.addRow("Paleta de Colores:", self.combo_palette)
+        
+        # Controles de puntos y errorbars
+        self.spin_ms = QSpinBox()
+        self.spin_ms.setRange(0, 15)
+        self.spin_ms.setValue(4)  
+        self.spin_ms.setSuffix(" px (Puntos)")
+        self.spin_ms.valueChanged.connect(self.replotted)
+        ctrl_form.addRow("Tamaño Puntos:", self.spin_ms)
+        
+        self.spin_cap = QDoubleSpinBox()
+        self.spin_cap.setRange(0.0, 15.0)
+        self.spin_cap.setValue(3.0)  
+        self.spin_cap.setSingleStep(0.5)
+        self.spin_cap.setSuffix(" pt (Tapita)")
+        self.spin_cap.valueChanged.connect(self.replotted)
+        ctrl_form.addRow("Ancho Tapita:", self.spin_cap)
+        
+        # Dimensiones de la figura en pulgadas
+        self.spin_width = QDoubleSpinBox()
+        self.spin_width.setRange(3.0, 15.0)
+        self.spin_width.setValue(6.5)  
+        self.spin_width.setSingleStep(0.5)
+        self.spin_width.setSuffix(" in (Ancho)")
+        self.spin_width.valueChanged.connect(self.update_fig_size)
+        ctrl_form.addRow("Ancho Figura:", self.spin_width)
+        
+        self.spin_height = QDoubleSpinBox()
+        self.spin_height.setRange(2.0, 10.0)
+        self.spin_height.setValue(4.5)  
+        self.spin_height.setSingleStep(0.5)
+        self.spin_height.setSuffix(" in (Alto)")
+        self.spin_height.valueChanged.connect(self.update_fig_size)
+        ctrl_form.addRow("Alto Figura:", self.spin_height)
+        
+        # Herramienta de Crop manual ejes X e Y
+        self.chk_auto_axes = QCheckBox("Límites de Ejes Automáticos")
+        self.chk_auto_axes.setChecked(True)
+        self.chk_auto_axes.stateChanged.connect(self.toggle_axes_inputs)
+        ctrl_form.addRow(self.chk_auto_axes)
+        
+        self.spin_xmin = QSpinBox()
+        self.spin_xmin.setRange(200, 1500)
+        self.spin_xmin.setValue(300)
+        self.spin_xmin.setSuffix(" nm (X Min)")
+        self.spin_xmin.setEnabled(False)
+        self.spin_xmin.valueChanged.connect(self.replotted)
+        ctrl_form.addRow("Crop X Min:", self.spin_xmin)
+        
+        self.spin_xmax = QSpinBox()
+        self.spin_xmax.setRange(200, 1500)
+        self.spin_xmax.setValue(800)
+        self.spin_xmax.setSuffix(" nm (X Max)")
+        self.spin_xmax.setEnabled(False)
+        self.spin_xmax.valueChanged.connect(self.replotted)
+        ctrl_form.addRow("Crop X Max:", self.spin_xmax)
+        
+        self.spin_ymin = QDoubleSpinBox()
+        self.spin_ymin.setRange(-10.0, 10.0)
+        self.spin_ymin.setValue(-0.10)
+        self.spin_ymin.setSingleStep(0.01)
+        self.spin_ymin.setDecimals(3)
+        self.spin_ymin.setEnabled(False)
+        self.spin_ymin.valueChanged.connect(self.replotted)
+        ctrl_form.addRow("Crop Y Min:", self.spin_ymin)
+        
+        self.spin_ymax = QDoubleSpinBox()
+        self.spin_ymax.setRange(-10.0, 10.0)
+        self.spin_ymax.setValue(1.0)
+        self.spin_ymax.setSingleStep(0.05)
+        self.spin_ymax.setDecimals(3)
+        self.spin_ymax.setEnabled(False)
+        self.spin_ymax.valueChanged.connect(self.replotted)
+        ctrl_form.addRow("Crop Y Max:", self.spin_ymax)
+        
+        self.btn_clear = QPushButton("🗑️ Limpiar Gráfico")
+        self.btn_clear.clicked.connect(self.clear_data)
+        ctrl_form.addRow(self.btn_clear)
+        
+        self.btn_export_fig = QPushButton("💾 Exportar Espectro (600 DPI)")
+        self.btn_export_fig.clicked.connect(self.export_figure)
+        self.btn_export_fig.setStyleSheet("background-color: #4A8C4A; color: white; font-weight: bold;")
+        ctrl_form.addRow(self.btn_export_fig)
+        
+        top_layout.addWidget(ctrl_group, 2)
+        layout.addLayout(top_layout)
+        
+        self.fig = Figure(figsize=(self.spin_width.value(), self.spin_height.value()), dpi=100)
+        self.canvas = FigureCanvas(self.fig)
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        
+        layout.addWidget(self.toolbar)
+        layout.addWidget(self.canvas)
+        
+        self.ax = self.fig.add_subplot(111)
+        self.setup_paper_style()
+        
+    def toggle_axes_inputs(self):
+        state = not self.chk_auto_axes.isChecked()
+        self.spin_xmin.setEnabled(state)
+        self.spin_xmax.setEnabled(state)
+        self.spin_ymin.setEnabled(state)
+        self.spin_ymax.setEnabled(state)
+        self.replotted()
+
+    def update_fig_size(self):
+        self.fig.set_size_inches(self.spin_width.value(), self.spin_height.value())
+        self.canvas.draw_idle() 
+        
+    def setup_paper_style(self):
+        self.ax.clear()
+        self.ax.tick_params(direction='in', top=True, right=True, labelsize=11, width=1.2, length=6)
+        for spine in self.ax.spines.values():
+            spine.set_linewidth(1.2)
+        self.ax.set_xlabel("Wavelength / nm", fontsize=13, fontname="Arial", fontweight='bold')
+        self.ax.set_ylabel("Amplitude / a.u.", fontsize=13, fontname="Arial", fontweight='bold')
+        self.ax.axhline(0, color='#7F7F7F', linestyle='--', linewidth=1.0, zorder=1)
+        self.ax.grid(False)
+        
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            
+    def dropEvent(self, event):
+        files_added = 0
+        for url in event.mimeData().urls():
+            file_path = str(url.toLocalFile())
+            if file_path.lower().endswith('.txt'):
+                if self.parse_spectra_file(file_path):
+                    files_added += 1
+        if files_added > 0:
+            self.replotted()
+            
+    def parse_spectra_file(self, path):
+        try:
+            taus_dict = {}
+            headers = None
+            data_lines = []
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line_str = line.strip()
+                    if not line_str:
+                        continue
+                    
+                    if line_str.startswith('#'):
+                        matches = re.findall(r"tau(\d+)=([\d.e+-]+)\+-([\d.e+-]+)", line_str)
+                        for m in matches:
+                            idx_t = int(m[0])
+                            val_t = float(m[1])
+                            err_t = float(m[2])
+                            taus_dict[idx_t] = (val_t, err_t)
+                        continue
+                    
+                    if headers is None:
+                        if '\t' in line_str:
+                            headers = line_str.split('\t')
+                        else:
+                            headers = re.split(r'\s+', line_str)
+                    else:
+                        data_lines.append(line_str)
+            
+            if not data_lines:
+                return False
+                
+            raw_data = np.loadtxt(data_lines)
+            if raw_data.ndim == 1:
+                return False
+                
+            wl = raw_data[:, 0]
+            num_cols = raw_data.shape[1]
+            
+            j = 1
+            component_idx = 1
+            while j < num_cols:
+                col_name = headers[j] if (headers and j < len(headers)) else f"A{component_idx}"
+                if "err" in col_name.lower():
+                    j += 1
+                    continue
+                
+                amp_values = raw_data[:, j]
+                err_values = None
+                
+                if j + 1 < num_cols and "err" in headers[j+1].lower():
+                    err_values = raw_data[:, j+1]
+                    j += 2  
+                else:
+                    j += 1  
+                
+                # --- MODIFICADO: REDONDEO Y VISUALIZACIÓN A 2 DECIMALES (:.2f) ---
+                label_text = col_name
+                if component_idx in taus_dict:
+                    t_val, t_err = taus_dict[component_idx]
+                    if t_err > 0.00001:
+                        label_text = f"$\\tau_{component_idx}$ = {t_val:.2f} $\\pm$ {t_err:.2f} ps"
+                    else:
+                        label_text = f"$\\tau_{component_idx}$ = {t_val:.2f} ps"
+                # -----------------------------------------------------------------
+                    
+                self.spectra_data.append({
+                    'wl': wl,
+                    'amp': amp_values,
+                    'err': err_values,
+                    'label': label_text
+                })
+                component_idx += 1
+                
+            return True
+        except Exception as e:
+            print(f"Error procesando espectro: {e}")
+            return False
+            
+    def replotted(self):
+        self.setup_paper_style()
+        if not self.spectra_data:
+            self.canvas.draw_idle()
+            return
+            
+        palette_choice = self.combo_palette.currentText()
+        N = len(self.spectra_data)
+        
+        ms = self.spin_ms.value()
+        cap = self.spin_cap.value()
+        marker_style = 'o' if ms > 0 else None
+        
+        generated_colors = []
+        if palette_choice == "Scientific (Nature)":
+            generated_colors = [self.nature_colors[i % len(self.nature_colors)] for i in range(N)]
+        else:
+            cmap_map = {
+                "Qualitative (Tab10)": "tab10",
+                "Vibrant (Set1)": "Set1",
+                "Sequential (Viridis)": "viridis",
+                "Sequential (Plasma)": "plasma",
+                "Cool / Warm": "coolwarm"
+            }
+            cmap = plt.get_cmap(cmap_map[palette_choice])
+            if palette_choice in ["Qualitative (Tab10)", "Vibrant (Set1)"]:
+                generated_colors = [cmap(i % cmap.N) for i in range(N)]
+            else:
+                generated_colors = [cmap(val) for val in np.linspace(0.0, 0.85, N)] if N > 1 else [cmap(0.5)]
+
+        for i, data in enumerate(self.spectra_data):
+            color = generated_colors[i]
+            wl = data['wl']
+            amp = data['amp']
+            err = data['err']
+            
+            if err is None:
+                err = np.zeros_like(amp)
+            
+            self.ax.errorbar(wl, amp, yerr=err, fmt='-', marker=marker_style, color=color, 
+                             linewidth=2.0, markersize=ms, capsize=cap, elinewidth=1.2, 
+                             markeredgewidth=1.0, alpha=0.9, label=data['label'], zorder=4)
+            
+        if not self.chk_auto_axes.isChecked():
+            self.ax.set_xlim(self.spin_xmin.value(), self.spin_xmax.value())
+            self.ax.set_ylim(self.spin_ymin.value(), self.spin_ymax.value())
+            
+        self.ax.legend(frameon=True, framealpha=0.0, edgecolor='none', fontsize=10, loc='best')
+        self.fig.tight_layout()
+        self.canvas.draw_idle()
+        
+    def clear_data(self):
+        self.spectra_data = []
+        self.replotted()
+        
+    def export_figure(self):
+        if not self.spectra_data:
+            return
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Publication Figure", "", 
+            "PDF Vector Graphic (*.pdf);;PNG High-Resolution Image (*.png);;TIFF Image (*.tiff)"
+        )
+        if save_path:
+            self.update_fig_size()
+            self.fig.savefig(save_path, dpi=600, bbox_inches='tight')
+            QMessageBox.information(self, "Export Successful", f"Espectro exportado con éxito a 600 DPI.")

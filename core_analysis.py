@@ -68,16 +68,32 @@ def load_from_paths(data_path, wl_path, td_path):
     """
     
     # ---- Load files ----
+    # 1. Cargar la matriz de datos principal
     try:
-        # Attempt to read data using pandas for flexibility with delimiters
-        df = pd.read_csv(data_path, header=None, sep=None, engine='python')
-        data = df.values
-    except Exception:
-        # Fallback to numpy loadtxt if pandas fails
-        data = np.loadtxt(data_path)
-    
-    wl = np.loadtxt(wl_path)
-    td = np.loadtxt(td_path)
+        # Intentamos primero separador por comas (para el formato FLUPS)
+        data = np.loadtxt(data_path, delimiter=',')
+    except ValueError:
+        try:
+            # Fallback a loadtxt normal (espacios/tabulaciones)
+            data = np.loadtxt(data_path)
+        except Exception:
+            # Fallback final con pandas por si es un formato extraño
+            df = pd.read_csv(data_path, header=None, sep=None, engine='python')
+            data = df.values
+
+    # 2. Cargar longitudes de onda (con protección para cabeceras de texto)
+    try:
+        wl = np.loadtxt(wl_path)
+    except ValueError:
+        # Si da ValueError, es probable que la primera línea sea texto (como "OR1_CORR_WL")
+        wl = np.loadtxt(wl_path, skiprows=1)
+        
+    # 3. Cargar tiempos (con protección para cabeceras de texto)
+    try:
+        td = np.loadtxt(td_path)
+    except ValueError:
+        # Si da ValueError, saltamos la cabecera (como "OR1_CORR_TD")
+        td = np.loadtxt(td_path, skiprows=1)
     
     # Replace NaNs with 0 to prevent downstream calculation errors
     data = np.nan_to_num(data, nan=0.0)
@@ -92,7 +108,7 @@ def load_from_paths(data_path, wl_path, td_path):
     elif data.shape == (ntd, nwl):
         data_arr = data.T.copy()
     else:
-        # Attempt reshaping if the total number of elements matches
+        # Attempt reshaping if the total number of elements matches (FLUPS exporta la matriz aplanada)
         if data.size == nwl * ntd:
             data_arr = data.reshape((nwl, ntd))
         else:
@@ -100,11 +116,17 @@ def load_from_paths(data_path, wl_path, td_path):
             data_arr = np.zeros((nwl, ntd))
             r = min(data.shape[0], nwl)
             c = min(data.shape[1], ntd)
-            data_arr[:r, :c] = data[:r, :c]
+            
+            # Ajuste de seguridad: si data es plana (1D) y no cuadran tamaños, no podemos hacer slicing 2D
+            if data.ndim == 1:
+                print(f"Warning: data is 1D ({data.size} elements) but does not match n_wl * n_td ({nwl * ntd}).")
+                max_elements = min(data.size, nwl * ntd)
+                data_arr.flat[:max_elements] = data[:max_elements]
+            else:
+                data_arr[:r, :c] = data[:r, :c]
             print(f"Warning: data shape {data.shape} does not match (n_wl, n_td). Padded/truncated to {(nwl, ntd)}.")
     
     return data_arr, wl, td
-
 
 def load_data(auto_path=None, data_path=None, wl_path=None, td_path=None):
     """

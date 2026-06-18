@@ -1572,14 +1572,14 @@ class TASAnalyzer(FLUPSAnalyzer):
         amp_row = QHBoxLayout()
         amp_row.addWidget(QLabel("Amplitude (%):"))
         amp_row.addWidget(self.slider_am)
-        amp_row.addWidget(self.lbl_am_value) # <--- Add the label here
+        amp_row.addWidget(self.lbl_am_value) 
         tas_extra_layout.addLayout(amp_row)
 
         # Shift Row
         shift_row = QHBoxLayout()
         shift_row.addWidget(QLabel("Shift (ps):"))
         shift_row.addWidget(self.slider_sf)
-        shift_row.addWidget(self.lbl_sf_value) # <--- Add the label here
+        shift_row.addWidget(self.lbl_sf_value) 
         tas_extra_layout.addLayout(shift_row)
         
         tas_extra_layout.addStretch() # Pushes the block up to align with the rest
