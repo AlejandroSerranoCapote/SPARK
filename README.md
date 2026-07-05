@@ -123,16 +123,18 @@ $$IRF(t) = \frac{1}{w \sqrt{\pi}} \exp\left( -\left( \frac{t - t_0}{w} \right)^2
 ##  Screenshots
 
 > *MAIN MENU*
-<img width="796" height="542" alt="Portada" src="https://github.com/user-attachments/assets/2af421f4-574f-4fa5-9501-6ecf5bd9db29" />
+<img width="897" height="553" alt="image" src="https://github.com/user-attachments/assets/7ce31ef0-843c-4bfa-91c5-d9a5379f7180" />
 
 > *GUI FLUPS*
-<img width="1222" height="803" alt="FLUPS" src="https://github.com/user-attachments/assets/0f236f57-9c5a-4175-ae8d-a91445405cde" />
+<img width="1627" height="940" alt="image" src="https://github.com/user-attachments/assets/51393cb7-b67a-49d3-be14-8a833d98d621" />
 
 > *GUI TAS*
-<img width="1434" height="854" alt="TAS" src="https://github.com/user-attachments/assets/5bab3bd4-0538-47dc-9a4c-04a55b598711" />
+<img width="1623" height="953" alt="image" src="https://github.com/user-attachments/assets/a3fd3c13-9dbd-42bc-80c5-c33d68c9a29f" />
+
 
 > *GUI Global Fit*
-<img width="1147" height="852" alt="GlobalFit" src="https://github.com/user-attachments/assets/dd5baf5c-d4aa-4eb6-8e9a-182a80ec4534" />
+<img width="1913" height="1030" alt="image" src="https://github.com/user-attachments/assets/64382479-8c5b-442d-8c24-e16f0b1d2b97" />
+
 
 > *SVD Analysis*
 <img width="1147" height="852" alt="SVD" src="https://github.com/user-attachments/assets/aef56289-bdb3-4c4b-a9a6-0de117d18927" />
