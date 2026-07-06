@@ -169,69 +169,6 @@ def convolved_exp_vectorized(t, t0, taus, w):
 # MODEL EVALUATION FUNCTIONS
 # =============================================================================
 
-def eval_global_model(x, t, numExp, numWL, t0_choice_str):
-    """
-        Evaluates the global parallel model (DAS - Decay Associated Spectra).
-    
-        Calculates the 2D data surface (Time x Wavelength) based on 
-        shared lifetimes and independent amplitudes per wavelength.
-    
-        Parameters
-        ----------
-        x : list or numpy.ndarray
-            Array of fitting parameters (w, t0, taus, amplitudes).
-        t : numpy.ndarray
-            Time delay vector.
-        numExp : int
-            Number of exponential components.
-        numWL : int
-            Number of wavelengths to fit.
-        t0_choice_str : str
-            'Yes' for fitting with chirp correction (variable t0 per wavelength),
-            any other value for standard global fitting (single shared t0).
-    
-        Returns
-        -------
-        numpy.ndarray
-            Simulated data matrix (Time x Wavelength).
-    """
-    F = np.zeros((len(t), numWL))
-    
-    if t0_choice_str == 'Yes': # CHIRP MODE
-        w = x[0]
-        taus = x[1:1+numExp] # Array de todos los Taus
-        base_idx = 1 + numExp
-        
-        for j in range(numWL):
-            idx = base_idx + j*(numExp+1)
-            t0 = x[idx]
-            Amps = x[idx+1 : idx+1+numExp] # Array de Amplitudes (shape: numExp,)
-            
-            # 1. Calculamos TODAS las bases exponenciales de golpe para este t0
-            # Devuelve matriz (Tiempo x numExp) directamente.
-            bases = convolved_exp_vectorized(t, t0, taus, w)
-            
-            # 2. Multiplicamos matricialmente Bases @ Amplitudes
-            # (N_t, N_exp) @ (N_exp,) -> (N_t,)  (Vector plano)
-            F[:, j] = bases @ Amps
-
-    else: # GLOBAL FIT (Optimización Máxima)
-        w = x[0]
-        t0 = x[1]
-        taus = x[2:2+numExp]
-        A_base = 2 + numExp
-        
-        # Devuelve directamente la matriz (Tiempo x numExp)
-        basis_functions = convolved_exp_vectorized(t, t0, taus, w)
-            
-        # Extraer Amplitudes
-        all_Amps = x[A_base:].reshape(numWL, numExp).T 
-        
-        # Multiplicación
-        F = basis_functions @ all_Amps
-        
-    return F
-
 def get_sequential_populations(t, t0, w, taus):
     """ 
         Calculates the populations for a sequential model (A -> B -> C...).
@@ -295,66 +232,7 @@ def get_sequential_populations(t, t0, w, taus):
 
     return pops
 
-def eval_sequential_model(x, t, numExp, numWL, t0_choice_str):
-    """
-        Evaluates the sequential model (SAS - Species Associated Spectra).
-    
-        Parameters
-        ----------
-        x : list
-            Parameter array.
-        t : numpy.ndarray
-            Time vector.
-        numExp : int
-            Number of species in the cascade.
-        numWL : int
-            Number of wavelengths.
-        t0_choice_str : str
-            'Yes' for chirp correction mode.
-    
-        Returns
-        -------
-        numpy.ndarray
-            Simulated data matrix.
-    """
-    F = np.zeros((len(t), numWL))
-    
-    if t0_choice_str == 'Yes': 
-        w = x[0]
-        taus = x[1:1+numExp]
-        base_idx = 1 + numExp
-        
-        for j in range(numWL):
-            idx = base_idx + j*(numExp+1)
-            t0 = x[idx]
-            sas_coeffs = x[idx+1 : idx+1+numExp] 
-            
-            pops_list = get_sequential_populations(t, t0, w, taus)
-            
-            # Manual dot product for the single WL
-            kinetics = np.zeros_like(t)
-            for n in range(numExp):
-                kinetics += sas_coeffs[n] * pops_list[n]
-            
-            F[:, j] = kinetics
 
-    else: 
-        w = x[0]
-        t0 = x[1]
-        taus = x[2:2+numExp]
-        A_base = 2 + numExp
-        
-        # 1. Basis Functions (Time x Species)
-        pops_list = get_sequential_populations(t, t0, w, taus)
-        basis_functions = np.column_stack(pops_list) 
-        
-        # 2. Amplitudes / SAS (Species x WL)
-        all_SAS = x[A_base:].reshape(numWL, numExp).T 
-        
-        # 3. Matrix Multiplication
-        F = basis_functions @ all_SAS
-        
-    return F
 
 def damped_oscillation(t, t0, alpha, omega, phi, w):
     """
@@ -405,67 +283,6 @@ def damped_oscillation(t, t0, alpha, omega, phi, w):
     
     return osc
 
-def eval_oscillation_model(x, t, numExp, numWL, t0_choice_str):
-    """
-        Evaluates a model combining parallel exponential decays and a damped oscillation.
-    
-        Parameters
-        ----------
-        x : list
-            Model parameters (w, t0, taus, alpha, omega, phi, local amplitudes).
-        t : numpy.ndarray
-            Time vector.
-        numExp : int
-            Number of exponential decays.
-        numWL : int
-            Number of wavelengths.
-        t0_choice_str : str
-            Must be 'No' (Chirp is not yet implemented for this model).
-    
-        Returns
-        -------
-        numpy.ndarray
-            Simulated data matrix.
-    
-        Raises
-        ------
-        NotImplementedError
-            If attempted to use with `t0_choice_str == 'Yes'`.
-    """
-    F = np.zeros((len(t), numWL))
-    
-    if t0_choice_str == 'Yes':
-        raise NotImplementedError("Chirp not implemented for Oscillation model yet.")
-
-    # --- Global Parameters ---
-    w = x[0]
-    t0 = x[1]
-    taus = x[2:2+numExp]
-    
-    # Oscillation parameters
-    alpha = x[2+numExp]
-    omega = x[2+numExp+1]
-    phi   = x[2+numExp+2]
-    
-    A_base = 2 + numExp + 3 
-    
-    # 1. Decay Bases (Vectorized) -> Matrix (Time x Exp)
-    basis_exp = convolved_exp_vectorized(t, t0, taus, w)
-        
-    # 2. Oscillation Basis -> Matrix (Time x 1)
-    basis_osc = damped_oscillation(t, t0, alpha, omega, phi, w).reshape(-1, 1)
-    
-    # 3. Stack all bases: [T x (numExp + 1)]
-    all_bases = np.hstack([basis_exp, basis_osc])
-    
-    # 4. Extract Local Amplitudes [A1...An, B] per wavelength
-    num_local_params = numExp + 1
-    all_amps = x[A_base:].reshape(numWL, num_local_params).T
-    
-    # 5. Matrix Multiplication
-    F = all_bases @ all_amps
-    
-    return F
 
 
 # =============================================================================
@@ -543,3 +360,157 @@ def get_coherent_artifact(t, t0, w):
     irf_d2 = irf_d2 / (np.max(np.abs(irf_d2)) + 1e-12)
 
     return np.hstack([irf, irf_d1, irf_d2])
+
+# =============================================================================
+# CONSTRUCTOR AUTOMÁTICO DE MODELOS CINÉTICOS (K-MATRIX MANAGER)
+# =============================================================================
+
+class KMatrixModel:
+    def __init__(self, name="Modelo Personalizado"):
+        self.name = name
+        self.states = []        # Lista de nombres de estados excitados
+        self.transitions = []   # Lista de tuplas: (origen, destino, tipo_param, label_param)
+        self.param_labels = []  # Nombres ordenados de los parámetros no lineales
+        
+    def add_state(self, state_name):
+        """Añade un estado físico al sistema (ej. 'S1*', 'S1', '3CT')"""
+        if state_name not in self.states:
+            self.states.append(state_name)
+            
+    def add_transition(self, source, target, param_type="tau", label=""):
+        """Añade una transferencia de población entre dos estados."""
+        self.add_state(source)
+        if target != "S0": # S0 es el estado fundamental
+            self.add_state(target)
+        self.transitions.append((source, target, param_type, label))
+        
+    def build_parameter_list(self):
+        """Analiza las transiciones y extrae la lista única de parámetros a optimizar."""
+        labels = []
+        for src, tgt, p_type, label in self.transitions:
+            if label and label not in labels:
+                labels.append(label)
+        self.param_labels = labels
+        return self.param_labels
+
+    def get_default_guesses_and_bounds(self):
+        """Generar automáticamente los valores iniciales y límites escalonados."""
+        self.build_parameter_list()
+        ini, low, upp = [], [], []
+        
+        # Valores iniciales escalonados para ayudar al optimizador a ordenar las taus
+        tau_defaults = [1.0, 15.0, 200.0, 1500.0, 5000.0]
+        tau_idx = 0
+        
+        for label in self.param_labels:
+            p_type = next(t[2] for t in self.transitions if t[3] == label)
+            if p_type == "tau":
+                val = tau_defaults[tau_idx] if tau_idx < len(tau_defaults) else 10.0
+                ini.append(val)
+                low.append(0.001)     
+                upp.append(1e8)       
+                tau_idx += 1
+            elif p_type == "gamma":
+                ini.append(0.5)       
+                low.append(0.0)       
+                upp.append(1.0)       
+                
+        return np.array(ini), np.array(low), np.array(upp)
+
+    def get_concentration_matrix(self, x_nl_params, t, w, t0, use_art=False):
+        """Toma los parámetros, construye la matriz K, la diagonaliza y devuelve poblaciones."""
+        N = len(self.states)
+        K = np.zeros((N, N))
+        
+        p_dict = dict(zip(self.param_labels, x_nl_params))
+        
+        tau_totals = {}
+        for src, tgt, p_type, label in self.transitions:
+            if p_type == "tau":
+                tau_totals[src] = p_dict[label]
+
+        for src, tgt, p_type, label in self.transitions:
+            idx_src = self.states.index(src)
+            val_param = p_dict[label]
+            
+            if p_type == "tau":
+                k_val = 1.0 / max(val_param, 1e-12)
+                K[idx_src, idx_src] -= k_val 
+                if tgt != "S0":
+                    idx_tgt = self.states.index(tgt)
+                    K[idx_tgt, idx_src] += k_val 
+                    
+            elif p_type == "gamma":
+                tau_total = tau_totals.get(src, 1.0)
+                k_total = 1.0 / max(tau_total, 1e-12)
+                k_via = val_param * k_total
+                
+                if tgt != "S0":
+                    idx_tgt = self.states.index(tgt)
+                    K[idx_tgt, idx_src] += k_via
+                    
+        # Perturbación determinista (NO aleatoria) para evitar autovalores degenerados
+        # cuando dos o más estados comparten el mismo tau efectivo. Debe ser determinista:
+        # el optimizador evalúa esta función muchas veces para el mismo x al calcular el
+        # Jacobiano numérico, y un ruido aleatorio ahí lo confunde y rompe la reproducibilidad.
+        
+        diag_vals = np.diagonal(K).copy()
+        eps_base = 1e-9
+        perturbacion = eps_base * np.arange(N)  # 0, eps, 2*eps, 3*eps... -> rompe empates sin azar
+        np.fill_diagonal(K, diag_vals * (1 + perturbacion))
+        
+        eigenvalues, V = np.linalg.eig(K)   
+        
+        try:
+            V_inv = np.linalg.inv(V)
+        except np.linalg.LinAlgError:
+            V_inv = np.linalg.pinv(V) # Fallback numérico
+
+            
+        # =================================================================
+        # FIX MÁGICO 1: Detectar automáticamente el estado excitado inicial
+        # Buscamos qué estado NO es el destino de ninguna flecha
+        # =================================================================
+        targets = [tgt for src, tgt, p_type, label in self.transitions]
+        roots = [s for s in self.states if s not in targets]
+        
+        P0 = np.zeros(N)
+        if roots:
+            idx_p0 = self.states.index(roots[0]) # El estado más alto detectado
+        else:
+            idx_p0 = 0 # Fallback por si hay un bucle raro cerrado
+        P0[idx_p0] = 1.0
+        
+        c = V_inv @ P0
+        
+        # =================================================================
+        # FIX MÁGICO 2: Protección contra números imaginarios e infinitos
+        # =================================================================
+        eigenvalues = np.real(eigenvalues)
+        taus_eff = np.zeros_like(eigenvalues)
+        
+        for i, ev in enumerate(eigenvalues):
+            if ev > -1e-12: # Si k es ~0 (estado que no tiene salida hacia S0)
+                taus_eff[i] = 1e8 # Le damos un tiempo de vida casi infinito
+            else:
+                taus_eff[i] = -1.0 / ev
+                
+        # Calculamos la base exponencial convolucionada
+        E_matrix = convolved_exp_vectorized(t, t0, taus_eff, w)
+        
+        pops = []
+        for i in range(N):
+            state_pop = np.zeros_like(t)
+            for j in range(N):
+                peso = np.real(V[i, j] * c[j]) # Tomamos solo la parte real física
+                state_pop += peso * E_matrix[:, j]
+            pops.append(state_pop)
+            
+        C = np.column_stack(pops)
+        
+        if use_art:
+            C = np.hstack([C, get_coherent_artifact(t, t0, w)])
+            
+        return C
+
+

@@ -37,285 +37,290 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QFont, QPalette, QColor, QDesktopServices, QIcon
 from PyQt5.QtCore import Qt, QTimer, QUrl, QSize,QEvent
-
+from PyQt5.QtWidgets import QFrame
 import fit
 from core_analysis import fit_t0, load_data, eV_a_nm
 from GlobalFitClassGui import GlobalFitPanel
 from maps_from_timescans import AppWindow as XFELWindow
 
 STYLESHEET = """
-    QMainWindow, QWidget {
-        background-color: #e6e8ed; 
-        color: #222222;
-        font-family: "Segoe UI", Arial, sans-serif;
+    QMainWindow {
+        background-color: #F8FAFC; 
+    }
+
+    /* --- PANEL IZQUIERDO (BRANDING) --- */
+    QFrame#LeftPanel {
+        background-color: #0F172A; /* Deep Slate Navy */
+    }
+    QLabel#LeftTitle {
+        color: #FFFFFF;
+        font-size: 26px;
+        font-weight: 900;
+        font-family: "Segoe UI Black", "Arial Black", sans-serif;
+        letter-spacing: 1px;
+    }
+    QLabel#LeftSub {
+        color: #94A3B8;
         font-size: 13px;
+        line-height: 1.5;
+    }
+
+    /* --- PANEL DERECHO (CONTENIDO) --- */
+    QLabel#SectionTitle {
+        color: #64748B;
+        font-size: 18px;
+        font-weight: bold;
+        letter-spacing: 2px;
+        margin-top: 5px;
     }
 
    
-    QLineEdit, QComboBox, QListWidget, QTextEdit, QTableWidget {
+    QPushButton[cssClass="MenuCard"] {
         background-color: #FFFFFF;
-        border: 1px solid #C0C0C0;
-        border-radius: 3px;
-        padding: 4px;
-        color: #000000;
+        color: #0F172A;
+        font-size: 14px;
+        font-weight: bold;    
+        border: 1px solid #E2E8F0;
+        border-radius: 6px;
+        border-left: 5px solid #CBD5E1; /* Borde gris por defecto */
     }
-    
-    QComboBox::down-arrow {
-            image: none; 
-            border-left: 4px solid transparent;
-            border-right: 4px solid transparent;
-            border-top: 5px solid #666666; 
-            width: 0px;
-            height: 0px;
-            margin-top: 2px;
-        }
-    
-    QComboBox:hover {
-            border: 1px solid #0078D7; 
-        }
-    
-        
-        QComboBox::drop-down {
-            subcontrol-origin: padding;
-            subcontrol-position: top right;
-            width: 25px;
-            border-left: 1px solid #E5E5E5; 
-            background-color: #FAFAFA;
-            border-top-right-radius: 3px;
-            border-bottom-right-radius: 3px;
-        }
-    
-        
-        QComboBox QAbstractItemView {
-            border: 1px solid #C0C0C0;
-            background-color: #FFFFFF;
-            selection-background-color: #E5F1FB;
-            selection-color: #000000;
-            outline: none; 
-        }
-    
-        
-        QComboBox QAbstractItemView::item {
-            padding: 8px 10px; 
-            min-height: 25px;
-        }
-        
-    
-    QPushButton {
-        background-color: #E1E1E1;
-        border: 1px solid #ADADAD;
-        border-radius: 3px;
-        padding: 6px 12px;
-        color: #222222;
+    QPushButton[cssClass="MenuCard"]:hover {
+        background-color: #F1F5F9;
+        margin-left: 4px; /* Pequeña animación al pasar el ratón */
     }
-    QPushButton:hover {
-        background-color: #D4D4D4;
-        border: 1px solid #0078D7; 
-    }
-    QPushButton:pressed {
-        background-color: #C8C8C8;
+    QPushButton[cssClass="MenuCard"]:pressed {
+        background-color: #E2E8F0;
     }
 
-    
-    QPushButton#MenuCard {
-        background-color: #FFFFFF; 
-        color: #2B2B2B;
-        border: 1px solid #D2D2D2; 
-        border-radius: 6px; 
-        font-size: 15px;
-        font-weight: bold;
-    }
-    QPushButton#MenuCard:hover {
-        background-color: #F8FBFF; 
-        border: 1px solid #0078D7; 
-        color: #005A9E; 
-    }
-    QPushButton#MenuCard:pressed {
-        background-color: #E5F1FB;
-        border: 1px solid #005499;
-    }
+    /* Colores únicos para cada tarjeta */
+    QPushButton#CardFLUPS { border-left-color: #10B981; } /* Verde */
+    QPushButton#CardTAS { border-left-color: #F59E0B; } /* Naranja */
+    QPushButton#CardGlobal { border-left-color: #3B82F6; } /* Azul */
+    QPushButton#CardXFEL { border-left-color: #8B5CF6; } /* Morado */
 
-    
-    QPushButton#BtnGreen {
-        background-color: #6CB66C; 
-        color: white;
-        border: 1px solid #549A54;
-        border-radius: 3px;
+    /* --- GITHUB BUTTON --- */
+    QPushButton#GithubBtn {
+        background-color: rgba(255, 255, 255, 0.05);
+        color: #E2E8F0;
         font-weight: bold;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
         padding: 8px;
     }
-    QPushButton#BtnGreen:hover {
-        background-color: #5CA55C;
-        border: 1px solid #468446;
-    }
-    QPushButton#BtnGreen:pressed {
-        background-color: #4A8C4A;
-    }
-
-    
-    QTabWidget::pane {
-        border: 1px solid #C0C0C0;
-        background: #F0F2F5;
-        top: -1px; 
-    }
-    QTabBar::tab {
-        background: #E1E1E1;
-        border: 1px solid #C0C0C0;
-        padding: 6px 15px;
-        margin-right: 2px;
-        border-top-left-radius: 2px;
-        border-top-right-radius: 2px;
-    }
-    QTabBar::tab:selected {
-        background: #F0F2F5;
-        border-bottom-color: #F0F2F5; 
-        font-weight: bold;
-    }
-    QTabBar::tab:hover:!selected {
-        background: #ECECEC;
-    }
-
-    
-    QLabel#MainTitle {
-        font-size: 24px;
-        font-weight: bold;
-        color: #333333;
-    }
-    
-    
-    QCheckBox {
-        spacing: 5px;
-    }
-    QCheckBox::indicator {
-        width: 14px;
-        height: 14px;
-        border: 1px solid #ADADAD;
-        background: #FFFFFF;
-        border-radius: 2px;
-    }
-    QCheckBox::indicator:checked {
-        background: #6CB66C;
-        border: 1px solid #549A54;
+    QPushButton#GithubBtn:hover {
+        background-color: rgba(255, 255, 255, 0.15);
+        border: 1px solid #FFFFFF;
+        color: #FFFFFF;
     }
 """
 
+MODULES_STYLESHEET = """
+    QMainWindow, QWidget {
+        background-color: #F8F9FA; 
+        color: #222222;            
+        font-family: "Segoe UI", Arial, sans-serif;
+        font-size: 9pt;              
+    }
+    QGroupBox {
+        border: none;
+        border-top: 1px solid #D0D0D0;
+        margin-top: 18px;             
+        padding-top: 15px;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        subcontrol-position: top left;
+        padding: 0px 5px 0px 0px;
+        font-weight: bold;
+        font-size: 10pt;
+        color: #3C5488; 
+    }
+    QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit {
+        background-color: #FFFFFF; 
+        border: 1px solid #CED4DA;
+        border-radius: 4px;
+        color: #212529;            
+        padding: 4px 8px;                
+        min-height: 22px; 
+    }
+    QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QLineEdit:focus {
+        border: 1px solid #80BDFF; 
+    }
+    QPushButton {
+        background-color: #E2E8F0;
+        border: 1px solid #CBD5E1;
+        border-radius: 4px;
+        padding: 6px 12px;
+        color: #0F172A;
+        font-weight: bold;
+    }
+    QPushButton:hover {
+        background-color: #CBD5E1;
+        border: 1px solid #94A3B8; 
+    }
+    QPushButton#BtnGreen {
+        background-color: #10B981; 
+        border: 1px solid #059669; 
+        color: white; 
+    }
+    QPushButton#BtnGreen:hover {
+        background-color: #059669; 
+    }
+    /* Sliders personalizados para que encajen en el sidebar */
+    QSlider::groove:horizontal {
+        border: 1px solid #CED4DA;
+        height: 6px;
+        background: #E9ECEF;
+        margin: 2px 0;
+        border-radius: 3px;
+    }
+    QSlider::handle:horizontal {
+        background: #3C5488;
+        border: 1px solid #2C3E50;
+        width: 14px;
+        margin: -4px 0;
+        border-radius: 7px;
+    }
+    QSlider::handle:horizontal:hover {
+        background: #0078D7;
+    }
+"""
+
+
+
 class MainApp(QMainWindow):
-    """
-    Main Window (DASHBOARD)
-    
-    Serves as the central hub for the Ultrafast Spectroscopy Analyzer suite.
-    Provides a graphical menu to launch different specialized analysis tools
-    (FLUPS, TAS, Global Fit, and 2D Mapper).
-    """
+    """Main Window (LAUNCHER DASHBOARD)"""
     def __init__(self):
-        """Initializes the main dashboard window, sets dimensions, and applies styling."""
         super().__init__()
-        self.setWindowTitle("Ultrafast Spectroscopy Analyzer")
-        self.setMinimumSize(800, 400) 
-        
-        # Note: Ensure STYLESHEET is defined in your broader scope or imported
-        # self.setStyleSheet(STYLESHEET) 
-        
+        self.setWindowTitle("Ultrafast Spectroscopy Analyzer - Launcher")
+        self.setMinimumSize(900, 520) 
+        self.setStyleSheet(STYLESHEET) 
         self.github_url = "https://github.com/AlejandroSerranoCapote/Ultrafast-Spectroscopy-Analyzer"
         self.initUI()
 
     def initUI(self):
-        """Sets up the UI elements, layouts, headers, buttons, and footer."""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
         
-        main_layout.setContentsMargins(50, 40, 50, 30)
-        main_layout.setSpacing(1)
+        # Layout principal: Izquierda y Derecha sin márgenes
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # --- 1. Header ---
-        title = QLabel("SELECT ANALYSIS MODE")
-        title.setObjectName("MainTitle")
-        title.setAlignment(Qt.AlignCenter)
+        # ==========================================
+        # PANEL IZQUIERDO (DARK BRANDING)
+        # ==========================================
+        left_panel = QFrame()
+        left_panel.setObjectName("LeftPanel")
+        left_panel.setFixedWidth(300) # Anchura fija para el menú
         
-        subtitle = QLabel("Ultrafast Spectroscopy Processing Tools")
-        subtitle.setAlignment(Qt.AlignCenter)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(35, 45, 35, 30)
 
-        main_layout.addWidget(title)
-        main_layout.addWidget(subtitle)
-
-        # --- 2. Buttons Grid ---
-        grid = QGridLayout()
-        grid.setSpacing(20)
-
-        txt_flups = "FLUPS ANALYZER"
-        txt_tas   = "TAS ANALYZER"
-        txt_fit   = "GLOBAL FIT"
-        txt_xfel  = "2D MAPPER"    
+        title = QLabel("ULTRAFAST\nSPECTROSCOPY\nANALYZER")
+        title.setObjectName("LeftTitle")
+        left_layout.addWidget(title)
         
-        # Create buttons
-        self.btn_flups = self.create_card(txt_flups)
-        self.btn_tas   = self.create_card(txt_tas)
-        self.btn_fit   = self.create_card(txt_fit)
-        self.btn_xfel  = self.create_card(txt_xfel)
+        left_layout.addSpacing(15)
+
+        sub = QLabel("Data processing\nsuite for time-resolved\nspectroscopy & global fitting.")
+        sub.setObjectName("LeftSub")
+        left_layout.addWidget(sub)
+
+        left_layout.addStretch()
+
+        self.btn_github = QPushButton("Source on GitHub")
+        self.btn_github.setObjectName("GithubBtn")
+        self.btn_github.setCursor(Qt.PointingHandCursor)
+        self.btn_github.clicked.connect(self.open_github)
+        left_layout.addWidget(self.btn_github)
+
+        author = QLabel("v1.4 \n© A. Serrano Capote")
+        author.setStyleSheet("color: #475569; font-size: 11px; margin-top: 10px;")
+        left_layout.addWidget(author)
+
+        main_layout.addWidget(left_panel)
+
+        # ==========================================
+        # PANEL DERECHO (MODULE CARDS)
+        # ==========================================
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(50, 45, 50, 45)
+        right_layout.setSpacing(15)
+
+        # --- SECCIÓN A: Técnicas Experimentales ---
+        lbl_cat1 = QLabel("PRIMARY PROCESSING MODULES")
+        lbl_cat1.setObjectName("SectionTitle")
+        right_layout.addWidget(lbl_cat1)
         
-        # Connect buttons to their respective launcher methods
+        grid1 = QGridLayout()
+        grid1.setSpacing(15)
+        self.btn_flups = self.create_card("FLUPS ANALYZER", "Fluorescence Upconversion Data", "CardFLUPS")
+        self.btn_tas   = self.create_card("TAS ANALYZER", "Transient Absorption Data", "CardTAS")
+        grid1.addWidget(self.btn_flups, 0, 0)
+        grid1.addWidget(self.btn_tas, 0, 1)
+        right_layout.addLayout(grid1)
+        
+        right_layout.addSpacing(20)
+
+        # --- SECCIÓN B: Herramientas Avanzadas ---
+        lbl_cat2 = QLabel("ADVANCED ANALYSIS & VISUALIZATION")
+        lbl_cat2.setObjectName("SectionTitle")
+        right_layout.addWidget(lbl_cat2)
+        
+        grid2 = QGridLayout()
+        grid2.setSpacing(15)
+        self.btn_fit = self.create_card("GLOBAL FIT", "Target Analysis & Kinetic Modeling", "CardGlobal")
+        self.btn_xfel  = self.create_card("2D MAPPER", "Create 2D maps using kinetics\n (XFEL utility)", "CardXFEL")
+        grid2.addWidget(self.btn_fit, 0, 0)
+        grid2.addWidget(self.btn_xfel, 0, 1)
+        right_layout.addLayout(grid2)
+
+        right_layout.addStretch()
+        main_layout.addWidget(right_panel)
+
+        # Conexiones de botones (Tus funciones de siempre)
         self.btn_flups.clicked.connect(self.launch_flups)
         self.btn_tas.clicked.connect(self.launch_tas)
         self.btn_fit.clicked.connect(self.launch_global)
         self.btn_xfel.clicked.connect(self.launch_xfel)
 
-        # Add buttons to grid
-        grid.addWidget(self.btn_flups, 0, 0)
-        grid.addWidget(self.btn_tas, 0, 1)
-        grid.addWidget(self.btn_fit, 1, 0)
-        grid.addWidget(self.btn_xfel, 1, 1)
+    def create_card(self, title_text, sub_text, object_name):
+            """Crea una tarjeta de módulo usando QLabels internos para soportar formato rico."""
+            btn = QPushButton()
+            btn.setProperty("cssClass", "MenuCard") 
+            btn.setObjectName(object_name)          
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(85)
+            
+            # Le metemos un Layout INTERNO al botón
+            vbox = QVBoxLayout(btn)
+            vbox.setContentsMargins(20, 15, 20, 15)
+            vbox.setSpacing(4)
+            
+            # Creamos la etiqueta del Título
+            title = QLabel(title_text)
+            title.setStyleSheet("color: #0F172A; font-size: 15px; font-weight: bold; border: none; background: transparent;")
+            title.setAttribute(Qt.WA_TransparentForMouseEvents) # El clic traspasa al botón
+            
+            # Creamos la etiqueta del Subtítulo
+            sub = QLabel(sub_text)
+            sub.setStyleSheet("color: #64748B; font-size: 12px; font-weight: normal; border: none; background: transparent;")
+            sub.setAttribute(Qt.WA_TransparentForMouseEvents)
+            
+            # Añadimos los textos al botón
+            vbox.addWidget(title)
+            vbox.addWidget(sub)
+            vbox.addStretch() # Empuja el texto hacia arriba suavemente
+            
+            return btn
 
-        main_layout.addLayout(grid)
-        main_layout.addSpacing(20)
-
-        # --- 3. Footer ---
-        footer_layout = QVBoxLayout()
-        footer_layout.setSpacing(10) 
-
-        self.btn_github = QPushButton("View Source Code on GitHub")
-        self.btn_github.setCursor(Qt.PointingHandCursor)
-        self.btn_github.clicked.connect(self.open_github)
-
-        h_center = QHBoxLayout()
-        h_center.addStretch()
-        h_center.addWidget(self.btn_github)
-        h_center.addStretch()
-        footer_layout.addLayout(h_center)
-
-        description = QLabel(
-            "Welcome! This free and open-source software allows you to analyze "
-            "ultrafast spectroscopy data directly from experiments such as "
-            "<b>FLUPS</b> (Fluorescence Upconversion Spectroscopy) "
-            ", <b>TAS</b> (Transient Absorption Spectroscopy) "
-            "and <b>XTAS</b> (X-Ray Transient Absorption Spectroscopy).<br><br>"
-            "For any questions or feedback, please contact:<br>"
-            "<b>alejandro.serrano1610@gmail.com</b>"
-        )
-        description.setWordWrap(True)
-        description.setAlignment(Qt.AlignCenter)
-        
-        footer_layout.addWidget(description)
-        main_layout.addLayout(footer_layout)
-
-    def create_card(self, text):
-        """
-        Creates a stylized, large push button to act as a dashboard card.
-        
-        Args:
-            text (str): The label text to display on the button.
-
-        Returns:
-            QPushButton: The configured button widget.
-        """
-        btn = QPushButton(text)
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setMinimumHeight(80) 
-        
-        # Used for targeting in CSS/QSS styling
-        btn.setObjectName("MenuCard") 
-        
-        return btn
+    def open_github(self):
+        if hasattr(self, 'github_url'):
+            from PyQt5.QtGui import QDesktopServices
+            from PyQt5.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl(self.github_url))
 
     def open_github(self):
         """Opens the repository URL in the user's default web browser."""
@@ -427,7 +432,7 @@ class FLUPSAnalyzer(QMainWindow):
         self.btn_fit.clicked.connect(self.fit_t0_points)
         self.btn_fit.setEnabled(False)
         
-        self.btn_auto_chirp = QPushButton("Auto-Chirp (Experimental)")
+        self.btn_auto_chirp = QPushButton("Auto-Chirp")
         self.btn_auto_chirp.clicked.connect(self.auto_fit_chirp)
         self.btn_auto_chirp.setObjectName("BtnGreen") # Para que destaque
         self.btn_auto_chirp.setEnabled(False)
@@ -487,157 +492,164 @@ class FLUPSAnalyzer(QMainWindow):
         
         # Add Canvas
         layout.addWidget(self.canvas)
+        
+        # --- APLICAMOS EL ESTILO PREMIUM AL MÓDULO ---
+        self.setStyleSheet(MODULES_STYLESHEET)
 
         # ===================================================================
-        # BOTTOM BLOCK: CENTERED CONTROLS
+        # THE NEW SPLIT-SCREEN LAYOUT (SIDEBAR + CANVAS)
         # ===================================================================
         
-        # Layout holding all controls (TAS will inject here)
-        self.bottom_controls_layout = QHBoxLayout()
-        self.bottom_controls_layout.setSpacing(25) 
+        main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
         
-        # 1. --- Delay ---
-        delay_layout = QVBoxLayout()
-        delay_layout.setSpacing(5)
-        delay_layout.addWidget(QLabel("Delay min (ps):"))
+        # --- A. PANEL IZQUIERDO (SIDEBAR) ---
+        self.sidebar_widget = QWidget()
+        self.sidebar_widget.setFixedWidth(360)
+        self.left_layout = QVBoxLayout(self.sidebar_widget)
+        self.left_layout.setContentsMargins(0, 0, 0, 0)
+        self.left_layout.setSpacing(10)
+        
+        # 1. Data Source
+        gb_data = QGroupBox("1. Data Source")
+        v_data = QVBoxLayout(gb_data)
+        h_load = QHBoxLayout()
+        h_load.addWidget(self.btn_load)
+        self.label_status.setWordWrap(True)
+        h_load.addWidget(self.label_status, stretch=1)
+        v_data.addLayout(h_load)
+        v_data.addWidget(self.btn_remove_fringe)
+        self.left_layout.addWidget(gb_data)
+        
+        # 2. Data Cropping (AQUÍ CREAMOS LOS CONTROLES DE NUEVO)
+        gb_crop = QGroupBox("2. Data Cropping")
+        v_crop = QVBoxLayout(gb_crop)
+        
         self.xmin_edit = QLineEdit("-1")
-        self.xmin_edit.setFixedWidth(50)
-        delay_layout.addWidget(self.xmin_edit)
-        
-        delay_layout.addWidget(QLabel("Delay max (ps):"))
         self.xmax_edit = QLineEdit("3")
+        self.xmin_edit.setFixedWidth(50)
         self.xmax_edit.setFixedWidth(50)
-        delay_layout.addWidget(self.xmax_edit)
-        
-        self.btn_apply_xlim = QPushButton("Apply X limits")
-        self.btn_apply_xlim.setFixedWidth(120)
+        self.btn_apply_xlim = QPushButton("Apply")
         self.btn_apply_xlim.clicked.connect(self.apply_x_limits)
-        delay_layout.addWidget(self.btn_apply_xlim)
-        delay_layout.addStretch() # Push upwards
         
-        # 2. --- Wavelength ---
-        wl_layout = QVBoxLayout()
-        wl_layout.setSpacing(5)
+        h_delay = QHBoxLayout()
+        h_delay.addWidget(QLabel("Delay (ps):"))
+        h_delay.addWidget(self.xmin_edit)
+        h_delay.addWidget(QLabel("to"))
+        h_delay.addWidget(self.xmax_edit)
+        h_delay.addWidget(self.btn_apply_xlim)
+        v_crop.addLayout(h_delay)
         
-        # wl min
-        wl_min_layout = QHBoxLayout()
-        wl_min_label = QLabel("λ min:")
         self.lbl_min_value = QLabel("400") 
         self.lbl_min_value.setCursor(Qt.PointingHandCursor)
-        self.lbl_min_value.setToolTip("Click to enter exact value")
-        self.lbl_min_value.installEventFilter(self) # Make the window listen to this label's events
-        
+        self.lbl_min_value.installEventFilter(self)
         self.slider_min = QSlider(Qt.Horizontal)
-        self.slider_min.setMinimumWidth(200)
         self.slider_min.setMinimum(400)
         self.slider_min.setMaximum(800)
         self.slider_min.setValue(500)
         self.slider_min.valueChanged.connect(self.update_wl_range)
-        wl_min_layout.addWidget(wl_min_label)
-        wl_min_layout.addWidget(self.slider_min)
-        wl_min_layout.addWidget(self.lbl_min_value)
-        wl_layout.addLayout(wl_min_layout)
         
-        # wlmax
-        wl_max_layout = QHBoxLayout()
-        wl_max_label = QLabel("λ max:")
         self.lbl_max_value = QLabel("800") 
         self.lbl_max_value.setCursor(Qt.PointingHandCursor)
-        self.lbl_max_value.setToolTip("Click to enter exact value")
-        self.lbl_max_value.installEventFilter(self) # Make the window listen to this label's events
-        
+        self.lbl_max_value.installEventFilter(self)
         self.slider_max = QSlider(Qt.Horizontal)
-        self.slider_max.setMinimumWidth(200)
         self.slider_max.setMinimum(400)
         self.slider_max.setMaximum(800)
         self.slider_max.setValue(700)
         self.slider_max.valueChanged.connect(self.update_wl_range)
-        wl_max_layout.addWidget(wl_max_label)
-        wl_max_layout.addWidget(self.slider_max)
-        wl_max_layout.addWidget(self.lbl_max_value)
-        wl_layout.addLayout(wl_max_layout)
-        wl_layout.addStretch() # Push upwards
-    
-        # 3. --- Dial Levels ---
-        dial_layout = QVBoxLayout()
+
+        h_wl_min = QHBoxLayout()
+        h_wl_min.addWidget(QLabel("λ min:"))
+        h_wl_min.addWidget(self.slider_min)
+        h_wl_min.addWidget(self.lbl_min_value)
+        v_crop.addLayout(h_wl_min)
+        
+        h_wl_max = QHBoxLayout()
+        h_wl_max.addWidget(QLabel("λ max:"))
+        h_wl_max.addWidget(self.slider_max)
+        h_wl_max.addWidget(self.lbl_max_value)
+        v_crop.addLayout(h_wl_max)
+        self.left_layout.addWidget(gb_crop)
+        
+        # 3. t0 Chirp Correction
+        gb_chirp = QGroupBox("3. t0 Chirp Correction")
+        v_chirp = QVBoxLayout(gb_chirp)
+        h_tools1 = QHBoxLayout()
+        h_tools1.addWidget(self.btn_select)
+        h_tools1.addWidget(self.btn_fit)
+        v_chirp.addLayout(h_tools1)
+        
+        self.combo_model = QComboBox()
+        self.combo_model.addItems(["Polynomial", "Non linear"])
+        self.combo_model.setCurrentIndex(1)
+        
+        h_model = QHBoxLayout()
+        h_model.addWidget(QLabel("Model:"))
+        h_model.addWidget(self.combo_model)
+        v_chirp.addLayout(h_model)
+        v_chirp.addWidget(self.btn_auto_chirp)
+        v_chirp.addWidget(self.btn_show_corr)
+        self.left_layout.addWidget(gb_chirp)
+        
+        # 4. Visualization
+        gb_vis = QGroupBox("4. Visualization")
+        v_vis = QVBoxLayout(gb_vis)
+        
+        self.combo_scale = QComboBox()
+        self.combo_scale.addItems(["SymLog", "Linear"])
+        self.combo_scale.setCurrentIndex(0) 
+        self.combo_scale.currentIndexChanged.connect(self.apply_y_scale)
+        
+        h_scale = QHBoxLayout()
+        h_scale.addWidget(QLabel("Y Scale:"))
+        h_scale.addWidget(self.combo_scale)
+        v_vis.addLayout(h_scale)
+        
+        self.lbl_linthresh = QLabel("Linthresh (ps):")
+        self.spin_linthresh = QDoubleSpinBox()
+        self.spin_linthresh.setDecimals(2)
+        self.spin_linthresh.setRange(0.01, 1000.0) 
+        self.spin_linthresh.setValue(1.0) 
+        self.spin_linthresh.setSingleStep(0.5)
+        self.spin_linthresh.valueChanged.connect(self.apply_y_scale)
+        
+        h_lin = QHBoxLayout()
+        h_lin.addWidget(self.lbl_linthresh)
+        h_lin.addWidget(self.spin_linthresh)
+        v_vis.addLayout(h_lin)
+        
         self.n_levels = 30
         self.dial_levels = QDial()
         self.dial_levels.setRange(2, 100)
         self.dial_levels.setValue(self.n_levels)
         self.dial_levels.setNotchesVisible(True)
-        self.dial_levels.setWrapping(False)
-        self.dial_levels.setFixedSize(80, 80)
+        self.dial_levels.setFixedSize(35, 35)
         self.dial_levels.valueChanged.connect(self.update_n_levels)
         self.lbl_dial = QLabel(f"{self.n_levels}")
-        self.lbl_dial.setAlignment(Qt.AlignCenter)
-        dial_layout.addWidget(self.dial_levels, alignment=Qt.AlignCenter)
-        dial_layout.addWidget(self.lbl_dial, alignment=Qt.AlignCenter)
-        dial_layout.addStretch()
-    
-        # 4. --- Combo Box (t0 Model) ---
-        combo_layout = QVBoxLayout()
-        lbl_model = QLabel("Chirp model fit ( t<sub>0</sub> ):")
-        self.combo_model = QComboBox()
-        self.combo_model.addItems(["Polynomial", "Non linear"])
-        self.combo_model.setCurrentIndex(1)
-        combo_layout.addWidget(lbl_model)
-        combo_layout.addWidget(self.combo_model)
-        combo_layout.addStretch()
-    
         
-        # 5. --- Y-Axis Scale ---
-        scale_layout = QVBoxLayout()
-        scale_layout.setSpacing(5)
+        h_levels = QHBoxLayout()
+        h_levels.addWidget(QLabel("Map Levels:"))
+        h_levels.addWidget(self.dial_levels)
+        h_levels.addWidget(self.lbl_dial)
+        h_levels.addStretch()
+        h_levels.addWidget(self.btn_plot)
+        v_vis.addLayout(h_levels)
+        self.left_layout.addWidget(gb_vis)
         
-        scale_layout.addWidget(QLabel("Y-Axis Scale:"))
-        self.combo_scale = QComboBox()
-        self.combo_scale.addItems(["SymLog", "Linear"])
-        self.combo_scale.setCurrentIndex(0) # SymLog by default
-        scale_layout.addWidget(self.combo_scale)
+        self.left_layout.addStretch()
         
-        self.lbl_linthresh = QLabel("Linthresh (ps):")
-        self.spin_linthresh = QDoubleSpinBox()
-        self.spin_linthresh.setDecimals(2)
-        self.spin_linthresh.setRange(0.01, 1000.0) # Wide range to play with
-        self.spin_linthresh.setValue(1.0) # Default value
-        self.spin_linthresh.setSingleStep(0.5)
+        # 5. Global Fit Button
+        self.btn_global_fit.setFixedHeight(40)
+        self.left_layout.addWidget(self.btn_global_fit)
         
-        scale_layout.addWidget(self.lbl_linthresh)
-        scale_layout.addWidget(self.spin_linthresh)
-        scale_layout.addStretch()
-        
-        # Connect to the function that updates the plot instantly
-        self.combo_scale.currentIndexChanged.connect(self.apply_y_scale)
-        self.spin_linthresh.valueChanged.connect(self.apply_y_scale)
-    
-        # --- Pack everything into the controls layout ---
-        self.bottom_controls_layout.addLayout(delay_layout)
-        self.bottom_controls_layout.addLayout(wl_layout)
-        self.bottom_controls_layout.addLayout(dial_layout)
-        
-        # Insert the new control here:
-        self.bottom_controls_layout.addLayout(scale_layout) 
-        
-        self.bottom_controls_layout.addLayout(combo_layout)
-    
-        
-        center_bottom_layout = QHBoxLayout()
-        center_bottom_layout.addStretch() # Left stretch
-        center_bottom_layout.addLayout(self.bottom_controls_layout)
-        center_bottom_layout.addStretch() # Right stretch
-        
-        layout.addLayout(center_bottom_layout)
-
-        self.bottom_controls_layout.setSpacing(60) 
-        
-        self.bottom_controls_layout.setContentsMargins(60, 10, 60, 0) 
-        
-        
-        layout.addLayout(self.bottom_controls_layout)
+        # --- B. PANEL DERECHO (CANVAS) ---
+        main_layout.addWidget(self.sidebar_widget)
+        main_layout.addWidget(self.canvas, stretch=1)
         
         # Set central widget
         container = QWidget()
-        container.setLayout(layout)
+        container.setLayout(main_layout)
         self.setCentralWidget(container)
         
         # --- Color styling for main axes and colorbars ---
@@ -1562,44 +1574,36 @@ class TASAnalyzer(FLUPSAnalyzer):
         self.slider_sf.valueChanged.connect(self.on_sf_changed)
         
         # ===================================================================
-        # TAS LAYOUT INJECTION IN THE CENTER
+        # TAS LAYOUT INJECTION IN THE SIDEBAR
         # ===================================================================
         
-        tas_extra_layout = QVBoxLayout()
-        tas_extra_layout.setSpacing(5)
+        gb_tas = QGroupBox("TAS Adjustments")
+        tas_extra_layout = QVBoxLayout(gb_tas)
+        tas_extra_layout.setSpacing(8)
 
-        # Amplitude Row
         amp_row = QHBoxLayout()
         amp_row.addWidget(QLabel("Amplitude (%):"))
         amp_row.addWidget(self.slider_am)
         amp_row.addWidget(self.lbl_am_value) 
         tas_extra_layout.addLayout(amp_row)
 
-        # Shift Row
         shift_row = QHBoxLayout()
         shift_row.addWidget(QLabel("Shift (ps):"))
         shift_row.addWidget(self.slider_sf)
         shift_row.addWidget(self.lbl_sf_value) 
         tas_extra_layout.addLayout(shift_row)
         
-        tas_extra_layout.addStretch() # Pushes the block up to align with the rest
-
-        # Inject this block into the main bottom layout (index 2 is between WL and the Combo box)
-        if hasattr(self, 'bottom_controls_layout'):
-            self.bottom_controls_layout.insertLayout(2, tas_extra_layout)
+        # Inyectamos el Widget (QGroupBox) justo debajo de Data Cropping (índice 2)
+        if hasattr(self, 'left_layout'):
+            self.left_layout.insertWidget(2, gb_tas)
  
         # === Checkbox for automatic .dat --> .csv conversion ===
         self.chk_convert_dat = QCheckBox("Convert .dat → .csv (IMDEA DATA)")
-        self.chk_convert_dat.setChecked(True)  # Activated by default
-
-        # Center it and place it at the very bottom
-        chk_layout = QHBoxLayout()
-        chk_layout.addStretch()
-        chk_layout.addWidget(self.chk_convert_dat)
-        chk_layout.addStretch()
+        self.chk_convert_dat.setChecked(True) 
         
-        self.centralWidget().layout().addLayout(chk_layout)
-        
+        # Añadir al final del panel izquierdo, justo encima del botón de Global Fit
+        if hasattr(self, 'left_layout'):
+            self.left_layout.insertWidget(self.left_layout.count() - 2, self.chk_convert_dat)
     def on_am_changed(self, value):
         """Updates the amplitude text label and recalculates the map."""
         self.lbl_am_value.setText(f"{value} %")
@@ -1869,6 +1873,8 @@ class TASAnalyzer(FLUPSAnalyzer):
             self.btn_select.setEnabled(True)
         if hasattr(self, "btn_fit"):
             self.btn_fit.setEnabled(True)
+        if hasattr(self, "btn_auto_chirp"):
+            self.btn_auto_chirp.setEnabled(True)
         
         #  Display only the loaded file name
         file_name = os.path.basename(file_path_medida)
