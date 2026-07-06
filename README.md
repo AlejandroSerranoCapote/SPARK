@@ -137,12 +137,16 @@ $$IRF(t) = \frac{1}{w \sqrt{\pi}} \exp\left( -\left( \frac{t - t_0}{w} \right)^2
 
 
 > *SVD Analysis*
-<img width="1147" height="852" alt="SVD" src="https://github.com/user-attachments/assets/aef56289-bdb3-4c4b-a9a6-0de117d18927" />
-
-> *Species Associated Spectra*
-<img width="798" height="668" alt="SAS" src="https://github.com/user-attachments/assets/73cec536-e7a8-4b1e-8272-546a7e724cf7" />
+<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/a1fe822d-9932-428b-b64f-3dade367e0e4" />
 
 
-> *Kinetics Fit*
-<img width="1196" height="564" alt="FitKinetcis" src="https://github.com/user-attachments/assets/5551248f-9a3c-47bf-9295-39d83136a019" />
+> *Species Associated Spectra & Kinetics Fit* 
+<table>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/7b76616a-86f5-4897-a873-b6ee7c6a2a6c" alt="SAS Spectra" width="100%"></td>
+    <td><img src="https://github.com/user-attachments/assets/95bd9d22-72ce-4181-8a25-529fa3d56f20" alt="Trace Viewer" width="100%"></td>
+  </tr>
+</table>
+
+
 
