@@ -288,31 +288,34 @@ def damped_oscillation(t, t0, alpha, omega, phi, w):
 # =============================================================================
 # NUEVO MOTOR VARPRO: Generadores de Matrices de Concentración (C)
 # =============================================================================
-
-def get_concentration_matrix_global(x_nl, t, numExp, use_art=False):
+def get_concentration_matrix_global(x_nl, t, numExp, use_art=False, artifact_mode='both'):
     w, t0 = x_nl[0], x_nl[1]
     taus = x_nl[2:2+numExp]
     C = convolved_exp_vectorized(t, t0, taus, w)
-    if use_art: C = np.hstack([C, get_coherent_artifact(t, t0, w)])
+    if use_art: 
+        C = np.hstack([C, get_coherent_artifact(t, t0, w, mode=artifact_mode)])
     return C
 
-def get_concentration_matrix_sequential(x_nl, t, numExp, use_art=False):
+def get_concentration_matrix_sequential(x_nl, t, numExp, use_art=False, artifact_mode='both'):
     w, t0 = x_nl[0], x_nl[1]
     taus = x_nl[2:2+numExp]
     pops_list = get_sequential_populations(t, t0, w, taus)
     C = np.column_stack(pops_list)
-    if use_art: C = np.hstack([C, get_coherent_artifact(t, t0, w)])
+    if use_art: 
+        C = np.hstack([C, get_coherent_artifact(t, t0, w, mode=artifact_mode)])
     return C
 
-def get_concentration_matrix_oscillation(x_nl, t, numExp, use_art=False):
+def get_concentration_matrix_oscillation(x_nl, t, numExp, use_art=False, artifact_mode='both'):
     w, t0 = x_nl[0], x_nl[1]
     taus = x_nl[2:2+numExp]
     alpha, omega, phi = x_nl[2+numExp], x_nl[2+numExp+1], x_nl[2+numExp+2]
     basis_exp = convolved_exp_vectorized(t, t0, taus, w)
     basis_osc = damped_oscillation(t, t0, alpha, omega, phi, w).reshape(-1, 1)
     C = np.hstack([basis_exp, basis_osc])
-    if use_art: C = np.hstack([C, get_coherent_artifact(t, t0, w)])
+    if use_art: 
+        C = np.hstack([C, get_coherent_artifact(t, t0, w, mode=artifact_mode)])
     return C
+
 
 def eval_varpro_model(C, data_c_T, enforce_nonneg=False, numExp=None):
     """
@@ -341,25 +344,40 @@ def eval_varpro_model(C, data_c_T, enforce_nonneg=False, numExp=None):
         F = C @ S_T
         return F, S_T
 
-def get_coherent_artifact(t, t0, w):
-    """Genera la base matemática para absorber Raman y XPM (IRF y sus derivadas)."""
-    if t.ndim == 1: t = t[:, np.newaxis]
+def get_coherent_artifact(t, t0, w, mode='both'):
+    """
+    Genera las bases matemáticas para el artefacto coherente.
+    
+    mode : str
+        'raman'  → solo φ₀ (IRF gaussiana). Absorbe Raman espontáneo 
+                   y absorción de 2 fotones.
+        'xpm'    → solo φ₁ y φ₂ (1ª y 2ª derivada de la IRF). Absorbe 
+                   Cross-Phase Modulation y efectos dispersivos.
+        'both'   → las tres bases (defecto). Caso general TAS broadband.
+    """
+    if t.ndim == 1: 
+        t = t[:, np.newaxis]
     sigma = max(w / (2 * np.sqrt(2 * np.log(2))), 1e-12)
     t_diff = t - t0
 
-    # IRF Gaussiano (Absorbe Raman y Absorción de 2 fotones)
-    irf = np.exp(-0.5 * (t_diff / sigma)**2)
-    # Primera derivada (Absorbe XPM y efectos dispersivos)
-    irf_d1 = - (t_diff / sigma**2) * irf
-    # Segunda derivada
+    irf    = np.exp(-0.5 * (t_diff / sigma)**2)
+    irf_d1 = -(t_diff / sigma**2) * irf
     irf_d2 = ((t_diff**2 - sigma**2) / sigma**4) * irf
 
-    # Normalizamos para estabilidad numérica del solver lineal
-    irf = irf / (np.max(np.abs(irf)) + 1e-12)
-    irf_d1 = irf_d1 / (np.max(np.abs(irf_d1)) + 1e-12)
-    irf_d2 = irf_d2 / (np.max(np.abs(irf_d2)) + 1e-12)
+    # Normalización para estabilidad numérica
+    def _norm(x):
+        return x / (np.max(np.abs(x)) + 1e-12)
 
-    return np.hstack([irf, irf_d1, irf_d2])
+    irf    = _norm(irf)
+    irf_d1 = _norm(irf_d1)
+    irf_d2 = _norm(irf_d2)
+
+    if mode == 'raman':
+        return irf                              # 1 base
+    elif mode == 'xpm':
+        return np.hstack([irf_d1, irf_d2])     # 2 bases
+    else:  # 'both'
+        return np.hstack([irf, irf_d1, irf_d2]) # 3 bases (comportamiento anterior)
 
 # =============================================================================
 # CONSTRUCTOR AUTOMÁTICO DE MODELOS CINÉTICOS (K-MATRIX MANAGER)
@@ -417,7 +435,8 @@ class KMatrixModel:
                 
         return np.array(ini), np.array(low), np.array(upp)
 
-    def get_concentration_matrix(self, x_nl_params, t, w, t0, use_art=False):
+
+def get_concentration_matrix(self, x_nl_params, t, w, t0, use_art=False, artifact_mode='both'):
         """Toma los parámetros, construye la matriz K, la diagonaliza y devuelve poblaciones."""
         N = len(self.states)
         K = np.zeros((N, N))
@@ -449,14 +468,10 @@ class KMatrixModel:
                     idx_tgt = self.states.index(tgt)
                     K[idx_tgt, idx_src] += k_via
                     
-        # Perturbación determinista (NO aleatoria) para evitar autovalores degenerados
-        # cuando dos o más estados comparten el mismo tau efectivo. Debe ser determinista:
-        # el optimizador evalúa esta función muchas veces para el mismo x al calcular el
-        # Jacobiano numérico, y un ruido aleatorio ahí lo confunde y rompe la reproducibilidad.
-        
+        # Perturbación determinista para evitar autovalores degenerados
         diag_vals = np.diagonal(K).copy()
         eps_base = 1e-9
-        perturbacion = eps_base * np.arange(N)  # 0, eps, 2*eps, 3*eps... -> rompe empates sin azar
+        perturbacion = eps_base * np.arange(N)
         np.fill_diagonal(K, diag_vals * (1 + perturbacion))
         
         eigenvalues, V = np.linalg.eig(K)   
@@ -464,53 +479,42 @@ class KMatrixModel:
         try:
             V_inv = np.linalg.inv(V)
         except np.linalg.LinAlgError:
-            V_inv = np.linalg.pinv(V) # Fallback numérico
+            V_inv = np.linalg.pinv(V)
 
-            
-        # =================================================================
-        # FIX MÁGICO 1: Detectar automáticamente el estado excitado inicial
-        # Buscamos qué estado NO es el destino de ninguna flecha
-        # =================================================================
         targets = [tgt for src, tgt, p_type, label in self.transitions]
         roots = [s for s in self.states if s not in targets]
         
         P0 = np.zeros(N)
         if roots:
-            idx_p0 = self.states.index(roots[0]) # El estado más alto detectado
+            idx_p0 = self.states.index(roots[0])
         else:
-            idx_p0 = 0 # Fallback por si hay un bucle raro cerrado
+            idx_p0 = 0
         P0[idx_p0] = 1.0
         
         c = V_inv @ P0
         
-        # =================================================================
-        # FIX MÁGICO 2: Protección contra números imaginarios e infinitos
-        # =================================================================
         eigenvalues = np.real(eigenvalues)
         taus_eff = np.zeros_like(eigenvalues)
         
         for i, ev in enumerate(eigenvalues):
-            if ev > -1e-12: # Si k es ~0 (estado que no tiene salida hacia S0)
-                taus_eff[i] = 1e8 # Le damos un tiempo de vida casi infinito
+            if ev > -1e-12:
+                taus_eff[i] = 1e8
             else:
                 taus_eff[i] = -1.0 / ev
                 
-        # Calculamos la base exponencial convolucionada
         E_matrix = convolved_exp_vectorized(t, t0, taus_eff, w)
         
         pops = []
         for i in range(N):
             state_pop = np.zeros_like(t)
             for j in range(N):
-                peso = np.real(V[i, j] * c[j]) # Tomamos solo la parte real física
+                peso = np.real(V[i, j] * c[j])
                 state_pop += peso * E_matrix[:, j]
             pops.append(state_pop)
             
         C = np.column_stack(pops)
         
-        if use_art:
-            C = np.hstack([C, get_coherent_artifact(t, t0, w)])
+        if use_art: 
+            C = np.hstack([C, get_coherent_artifact(t, t0, w, mode=artifact_mode)])
             
         return C
-
-

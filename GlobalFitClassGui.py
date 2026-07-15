@@ -361,19 +361,20 @@ class TraceExplorerWindow(QDialog):
         # --- CÁLCULO DIRECTO POR VARPRO (SIN CHIRP) ---
         if hasattr(self.p, 'S_T_full'):
             use_art = getattr(self.p, 'chk_artifact', None) and self.p.chk_artifact.isChecked()
+            art_mode = self._get_artifact_mode()
             
             if self.p.model_type == "Sequential":
-                C_smooth = fit.get_concentration_matrix_sequential(self.p.fit_x, td_smooth, self.p.numExp, use_art)
+                C_smooth = fit.get_concentration_matrix_sequential(self.p.fit_x, td_smooth, self.p.numExp, use_art,art_mode)
             elif self.p.model_type == 'Damped Oscillation':
-                C_smooth = fit.get_concentration_matrix_oscillation(self.p.fit_x, td_smooth, self.p.numExp, use_art)
+                C_smooth = fit.get_concentration_matrix_oscillation(self.p.fit_x, td_smooth, self.p.numExp, use_art,art_mode)
             elif self.p.model_type == "Custom GUI Model":
                 model = self.p.current_custom_model
                 w, t0 = self.p.fit_x[0], self.p.fit_x[1]
                 num_params_cineticos = len(model.param_labels)
                 x_nl_params = self.p.fit_x[2:2+num_params_cineticos]
-                C_smooth = model.get_concentration_matrix(x_nl_params, td_smooth, w, t0, use_art=use_art)
+                C_smooth = model.get_concentration_matrix(x_nl_params, td_smooth, w, t0, use_art,art_mode)
             else:
-                C_smooth = fit.get_concentration_matrix_global(self.p.fit_x, td_smooth, self.p.numExp, use_art)
+                C_smooth = fit.get_concentration_matrix_global(self.p.fit_x, td_smooth, self.p.numExp, use_art,art_mode)
                 
             y_fit_smooth = C_smooth @ self.p.S_T_full[:, idx]
         else:
@@ -420,19 +421,20 @@ class TraceExplorerWindow(QDialog):
         # 3. Recalcular el Fit para los puntos experimentales exactos (td)
         if hasattr(self.p, 'S_T_full'):
             use_art = getattr(self.p, 'chk_artifact', None) and self.p.chk_artifact.isChecked()
-            
+            art_mode = self._get_artifact_mode()
+
             if self.p.model_type == "Sequential":
-                C_exp = fit.get_concentration_matrix_sequential(self.p.fit_x, td, self.p.numExp, use_art)
+                C_exp = fit.get_concentration_matrix_sequential(self.p.fit_x, td, self.p.numExp, use_art,art_mode)
             elif self.p.model_type == 'Damped Oscillation':
-                C_exp = fit.get_concentration_matrix_oscillation(self.p.fit_x, td, self.p.numExp, use_art)
+                C_exp = fit.get_concentration_matrix_oscillation(self.p.fit_x, td, self.p.numExp, use_art,art_mode)
             elif self.p.model_type == "Custom GUI Model":
                 model = self.p.current_custom_model
                 w, t0 = self.p.fit_x[0], self.p.fit_x[1]
                 num_params_cineticos = len(model.param_labels)
                 x_nl_params = self.p.fit_x[2:2+num_params_cineticos]
-                C_exp = model.get_concentration_matrix(x_nl_params, td, w, t0, use_art=use_art)
+                C_exp = model.get_concentration_matrix(x_nl_params, td, w, t0, use_art,art_mode)
             else:
-                C_exp = fit.get_concentration_matrix_global(self.p.fit_x, td, self.p.numExp, use_art)
+                C_exp = fit.get_concentration_matrix_global(self.p.fit_x, td, self.p.numExp, use_art,art_mode)
                 
             y_fit_exp = C_exp @ self.p.S_T_full[:, idx]
         else:
@@ -1725,9 +1727,29 @@ class GlobalFitPanel(QDialog):
         self.combo_tech.addItems(["FLUPS", "TAS", "TCSPC"])
         form_model.addRow("Technique:", self.combo_tech)
         
-        self.chk_artifact = QCheckBox("Model Coherent Artifact (XPM/Raman)")
+                
+        self.chk_artifact = QCheckBox("Model Coherent Artifact")
         form_model.addRow(self.chk_artifact)
         
+        self.combo_artifact_mode = QComboBox()
+        self.combo_artifact_mode.addItems([
+            "Raman + XPM (both)",   # → 'both'
+            "Raman only (φ₀)",      # → 'raman'
+            "XPM only (φ₁ + φ₂)",  # → 'xpm'
+        ])
+        self.combo_artifact_mode.setEnabled(False)  # desactivado hasta que se marque el checkbox
+        self.combo_artifact_mode.setToolTip(
+            "Raman only: fits the instantaneous Raman/2PA signal (IRF shape).\n"
+            "XPM only: fits cross-phase modulation (dispersive shape).\n"
+            "Both: general case for broadband probe TAS."
+        )
+        form_model.addRow("Artifact type:", self.combo_artifact_mode)
+        
+        # Enlazar checkbox → habilitar/deshabilitar el combo
+        self.chk_artifact.stateChanged.connect(
+            lambda state: self.combo_artifact_mode.setEnabled(state == Qt.Checked)
+        )
+                
         self.chk_nnls = QCheckBox("Force Positive Spectra (NNLS)")
         form_model.addRow(self.chk_nnls)
         
@@ -3419,18 +3441,20 @@ class GlobalFitPanel(QDialog):
             x_full[free_indices] = p_free
             
             use_art = getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked() 
+            art_mode = self._get_artifact_mode()
+
             if self.model_type == "Sequential":
-                C = fit.get_concentration_matrix_sequential(x_full, TD, self.numExp, use_art)
+                C = fit.get_concentration_matrix_sequential(x_full, TD, self.numExp, use_art,art_mode)
             elif self.model_type == 'Damped Oscillation':
-                C = fit.get_concentration_matrix_oscillation(x_full, TD, self.numExp, use_art)
+                C = fit.get_concentration_matrix_oscillation(x_full, TD, self.numExp, use_art,art_mode)
             elif self.model_type == "Custom GUI Model":
                 model = self.current_custom_model
                 w, t0 = x_full[0], x_full[1]
                 num_params_cineticos = len(model.param_labels)
                 x_nl_params = x_full[2:2+num_params_cineticos]
-                C = model.get_concentration_matrix(x_nl_params, TD, w, t0, use_art=use_art)
+                C = model.get_concentration_matrix(x_nl_params, TD, w, t0, use_art,art_mode)
             else: 
-                C = fit.get_concentration_matrix_global(x_full, TD, self.numExp, use_art)
+                C = fit.get_concentration_matrix_global(x_full, TD, self.numExp, use_art,art_mode)
                 
             use_nnls = getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked()
             F, _ = fit.eval_varpro_model(C, self.data_c.T, enforce_nonneg=use_nnls, numExp=self.numExp)
@@ -3487,7 +3511,16 @@ class GlobalFitPanel(QDialog):
             return 2 + len(self.current_custom_model.param_labels)
         else:
             return 2 + self.numExp
-           
+        
+    def _get_artifact_mode(self):
+        
+        """Devuelve el string de modo del artefacto coherente para fit.py."""
+        if not (getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked()):
+            return 'both'  # irrelevante si use_art=False, pero devolvemos un valor válido
+        idx = self.combo_artifact_mode.currentIndex()
+        
+        return ['both', 'raman', 'xpm'][idx]
+      
     def _postprocess_fit_and_save(self):
             """Calculates statistics, extracts spectra with errors, and saves files to the /fit/ directory."""
             if self.fit_result is None: return
@@ -3500,20 +3533,21 @@ class GlobalFitPanel(QDialog):
             numWL = len(WL)
             numExp = self.numExp
             use_art = getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked()
-            
+            art_mode = self._get_artifact_mode()
+
             
             if self.model_type == "Sequential":
-                C = fit.get_concentration_matrix_sequential(x, TD, numExp, use_art)
+                C = fit.get_concentration_matrix_sequential(x, TD, numExp, use_art,art_mode)
             elif self.model_type == 'Damped Oscillation':
-                C = fit.get_concentration_matrix_oscillation(x, TD, numExp, use_art)
+                C = fit.get_concentration_matrix_oscillation(x, TD, numExp, use_art, art_mode)
             elif self.model_type == "Custom GUI Model":
                 model = self.current_custom_model
                 w, t0 = x[0], x[1]
                 num_params_cineticos = len(model.param_labels)
                 x_nl_params = x[2:2+num_params_cineticos]
-                C = model.get_concentration_matrix(x_nl_params, TD, w, t0, use_art=use_art)
+                C = model.get_concentration_matrix(x_nl_params, TD, w, t0, use_art, art_mode)
             else:
-                C = fit.get_concentration_matrix_global(x, TD, numExp, use_art)
+                C = fit.get_concentration_matrix_global(x, TD, numExp, use_art,art_mode)
             
             use_nnls = getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked()
             F_mat, S_T_full = fit.eval_varpro_model(C, self.data_c.T, enforce_nonneg=use_nnls, numExp=numExp) 
@@ -3684,6 +3718,17 @@ class GlobalFitPanel(QDialog):
                 err_val = self.extracted_errtaus[n] if (self.extracted_errtaus is not None and n < len(self.extracted_errtaus)) else 0.0
                 tau_comment_lines.append(f"tau{n+1}={tau_val:.6g}+-{err_val:.6g}")
             
+            # --- NUEVO: PARÁMETROS DEL ARTEFACTO COHERENTE EN LA CABECERA ---
+            if use_art:
+                w_val = x[0]
+                w_err = self.ci[0] if (self.ci is not None and len(self.ci) > 0) else 0.0
+                t0_val = x[1]
+                t0_err = self.ci[1] if (self.ci is not None and len(self.ci) > 1) else 0.0
+                tau_comment_lines.append(f"coherent_artifact=True")
+                tau_comment_lines.append(f"artifact_mode={art_mode}")
+                tau_comment_lines.append(f"irf_fwhm_w={w_val:.6g}+-{w_err:.6g} ps")
+                tau_comment_lines.append(f"t0={t0_val:.6g}+-{t0_err:.6g} ps")
+            
             col_headers = ["Wavelength"]
             amp_columns = [WL]
             for n in range(numExp):
@@ -3691,6 +3736,34 @@ class GlobalFitPanel(QDialog):
                 col_headers.append(f"A{n+1}_err")
                 amp_columns.append(self.As[n])
                 amp_columns.append(self.errAs[n])
+            
+            # --- NUEVO: COLUMNAS DE ESPECTROS DEL ARTEFACTO COHERENTE ---
+            if use_art:
+                if art_mode == 'raman':
+                    num_art_bases = 1
+                    art_labels = ["Raman_phi0"]
+                elif art_mode == 'xpm':
+                    num_art_bases = 2
+                    art_labels = ["XPM_phi1", "XPM_phi2"]
+                else:  # 'both'
+                    num_art_bases = 3
+                    art_labels = ["Raman_phi0", "XPM_phi1", "XPM_phi2"]
+                
+                # Las últimas columnas de C (y por ende las últimas filas de S_T_full) son el artefacto
+                art_amps = S_T_full[-num_art_bases:, :]
+                
+                # Intentamos extraer los errores del artefacto si err_S_T_full está disponible
+                if 'err_S_T_full' in locals() and err_S_T_full is not None:
+                    art_errs = err_S_T_full[-num_art_bases:, :]
+                else:
+                    art_errs = np.zeros_like(art_amps)
+                
+                # Añadir las amplitudes espectrales del artefacto como nuevas columnas
+                for i, label in enumerate(art_labels):
+                    col_headers.append(label)
+                    col_headers.append(f"{label}_err")
+                    amp_columns.append(art_amps[i])
+                    amp_columns.append(art_errs[i])
             
             amp_matrix = np.column_stack(amp_columns)
             
