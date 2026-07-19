@@ -361,7 +361,7 @@ class TraceExplorerWindow(QDialog):
         # --- CÁLCULO DIRECTO POR VARPRO (SIN CHIRP) ---
         if hasattr(self.p, 'S_T_full'):
             use_art = getattr(self.p, 'chk_artifact', None) and self.p.chk_artifact.isChecked()
-            art_mode = self._get_artifact_mode()
+            art_mode = self.p._get_artifact_mode()
             
             if self.p.model_type == "Sequential":
                 C_smooth = fit.get_concentration_matrix_sequential(self.p.fit_x, td_smooth, self.p.numExp, use_art,art_mode)
@@ -421,7 +421,7 @@ class TraceExplorerWindow(QDialog):
         # 3. Recalcular el Fit para los puntos experimentales exactos (td)
         if hasattr(self.p, 'S_T_full'):
             use_art = getattr(self.p, 'chk_artifact', None) and self.p.chk_artifact.isChecked()
-            art_mode = self._get_artifact_mode()
+            art_mode = self.p._get_artifact_mode()
 
             if self.p.model_type == "Sequential":
                 C_exp = fit.get_concentration_matrix_sequential(self.p.fit_x, td, self.p.numExp, use_art,art_mode)
@@ -3710,7 +3710,7 @@ class GlobalFitPanel(QDialog):
             np.savetxt(os.path.join(outdir, "WL.txt"), WL, fmt='%.6f', header='Wavelength (nm)', comments='')
             np.savetxt(os.path.join(outdir, "TD.txt"), TD, fmt='%.6f', header='Delay (ps)', comments='')
             
-            # 3. Amplitudes (DAS/SAS) en el formato que espera SASDASPlotterWindow.parse_spectra_file:
+            # 3. Amplitudes (DAS/SAS) en el formato que espera SASDASPlotterWindow:
             #    líneas "# tauN=valor+-error" seguidas de columnas Wavelength / AN / AN_err
             tau_comment_lines = []
             for n in range(numExp):
@@ -3749,16 +3749,14 @@ class GlobalFitPanel(QDialog):
                     num_art_bases = 3
                     art_labels = ["Raman_phi0", "XPM_phi1", "XPM_phi2"]
                 
-                # Las últimas columnas de C (y por ende las últimas filas de S_T_full) son el artefacto
+                # Extraemos las amplitudes del final de S_T_full
                 art_amps = S_T_full[-num_art_bases:, :]
                 
-                # Intentamos extraer los errores del artefacto si err_S_T_full está disponible
                 if 'err_S_T_full' in locals() and err_S_T_full is not None:
                     art_errs = err_S_T_full[-num_art_bases:, :]
                 else:
                     art_errs = np.zeros_like(art_amps)
                 
-                # Añadir las amplitudes espectrales del artefacto como nuevas columnas
                 for i, label in enumerate(art_labels):
                     col_headers.append(label)
                     col_headers.append(f"{label}_err")
@@ -3773,6 +3771,7 @@ class GlobalFitPanel(QDialog):
                 f.write("\t".join(col_headers) + "\n")
                 np.savetxt(f, amp_matrix, fmt='%.6e', delimiter='\t')
             
+            # --- RECUPERACIÓN DE LA INTERFAZ GRÁFICA (LO QUE FALTABA) ---
             self._update_fit_canvas()
             self._update_resid_canvas()
             self.btn_show_das.setEnabled(True)
