@@ -1876,12 +1876,12 @@ class GlobalFitPanel(QDialog):
         layout_model.addWidget(self.btn_show_das)
         
         # --- Botón de Reporte PDF ---
-        self.btn_export_pdf = QPushButton("Export PDF Report (SI Ready)")
+        self.btn_export_pdf = QPushButton("PDF Report")
         self.btn_export_pdf.setEnabled(False)
         self.btn_export_pdf.setStyleSheet("background-color: #8B0000; color: white; font-weight: bold;") # Rojo oscuro
         self.btn_export_pdf.clicked.connect(self.export_pdf_report)
         layout_model.addWidget(self.btn_export_pdf)
-        layout_model.addStretch() # Empuja los botones extra hacia abajo en la segunda pestaña
+        layout_model.addStretch() 
         
         # --- Plotters Independientes ---
         self.btn_standalone_plotter = QPushButton("Open Paper Plotter (Saved Traces)")
@@ -4169,50 +4169,197 @@ class GlobalFitPanel(QDialog):
             dlg.exec_()
             
     def export_pdf_report(self):
-            """Genera un reporte PDF vectorial con la calidad requerida para publicaciones."""
-            if self.fit_x is None or self.data_c is None:
-                return
-                
-            outdir = self.current_batch_outdir if getattr(self, 'is_batch_running', False) else os.path.join(self.base_dir, "fit")
-            os.makedirs(outdir, exist_ok=True)
-            
-            base_name = "Dataset"
-            idx = self.combo_active_dataset.currentIndex()
-            if idx >= 0 and idx < len(self.filenames):
-                base_name = os.path.splitext(self.filenames[idx])[0]
-                
-            pdf_path = os.path.join(outdir, f"{base_name}_FitReport.pdf")
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            
+        """Genera un reporte PDF vectorial (calidad publicación) con el resumen del ajuste global."""
+        if self.fit_x is None or self.data_c is None:
+            return
+
+        outdir = self.current_batch_outdir if getattr(self, 'is_batch_running', False) else os.path.join(self.base_dir, "fit")
+        os.makedirs(outdir, exist_ok=True)
+
+        base_name = "Dataset"
+        idx = self.combo_active_dataset.currentIndex()
+        if idx >= 0 and idx < len(self.filenames):
+            base_name = os.path.splitext(self.filenames[idx])[0]
+
+        pdf_path = os.path.join(outdir, f"{base_name}_FitReport.pdf")
+
+        # ------------------------------------------------------------------
+        # Comprobación previa: si el PDF ya existe y está abierto en un lector
+        # externo (Adobe/Edge/etc.), Windows bloquea el fichero y la escritura
+        # falla con PermissionError. Lo detectamos ANTES de generar las páginas
+        # (que son costosas) y usamos automáticamente un nombre alternativo
+        # con marca de tiempo, en vez de perder el trabajo hecho.
+        # ------------------------------------------------------------------
+        def _first_writable_path(path):
             try:
+                with open(path, 'ab'):
+                    pass
+                return path, False
+            except PermissionError:
+                root, ext = os.path.splitext(path)
+                alt_path = f"{root}_{datetime.datetime.now().strftime('%H%M%S')}{ext}"
+                return alt_path, True
+            except OSError:
+                # Otros problemas de ruta (permiso de carpeta, disco, etc.)
+                return path, False
+
+        pdf_path, used_fallback_name = _first_writable_path(pdf_path)
+        if used_fallback_name:
+            QMessageBox.information(
+                self, "File in use",
+                f"The report file appears to be open in another program (e.g. a PDF viewer).\n"
+                f"Saving the new report as:\n{os.path.basename(pdf_path)}\n\n"
+                f"Tip: close the PDF viewer before exporting to reuse the original filename."
+            )
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+
+        # ------------------------------------------------------------------
+        # Estilo "publicación": tipografía y ejes consistentes en todo el PDF.
+        # pdf.fonttype/ps.fonttype = 42 embebe el texto como TrueType real
+        # (en vez de Type 3 bitmap): se ve nítido a cualquier zoom y queda
+        # editable si alguien retoca la figura en Illustrator/Inkscape.
+        # ------------------------------------------------------------------
+        from matplotlib.patches import Rectangle
+
+        pub_rc = {
+            'font.family':       'sans-serif',
+            'font.sans-serif':   ['Arial', 'Helvetica', 'DejaVu Sans'],
+            'font.size':         10,
+            'axes.titlesize':    12,
+            'axes.titleweight':  'bold',
+            'axes.labelsize':    10,
+            'axes.linewidth':    1.1,
+            'axes.edgecolor':    '#333333',
+            'xtick.direction':   'in',
+            'ytick.direction':   'in',
+            'xtick.labelsize':   9,
+            'ytick.labelsize':   9,
+            'legend.frameon':    True,
+            'legend.framealpha': 0.9,
+            'legend.edgecolor':  '#B0B0B0',
+            'figure.facecolor':  'white',
+            'savefig.facecolor': 'white',
+            'pdf.fonttype':      42,
+            'ps.fonttype':       42,
+        }
+
+        HEADER_BLUE = '#1B2A4A'
+        ACCENT_BLUE = '#3C5488'
+        WARN_ROW = '#FBE3E3'
+        GRID_KW = dict(linestyle=':', alpha=0.35, linewidth=0.7)
+
+        # --- Diagnóstico de identificabilidad (condition number + dirección "sloppy") ---
+        cond = getattr(self, 'fit_condition_number', np.inf)
+        if cond is not None and np.isfinite(cond):
+            if cond < 1e2:
+                cond_color, cond_msg = '#10B981', 'Well-conditioned'
+            elif cond < 1e4:
+                cond_color, cond_msg = '#F59E0B', 'Moderate correlation'
+            else:
+                cond_color, cond_msg = '#EF4444', 'Poorly identifiable'
+        else:
+            cond_color, cond_msg = '#6C757D', 'N/A'
+
+        sloppy = getattr(self, 'sloppiest_direction', [])
+        sloppy_idx_set = set()
+        sloppy_text = None
+        if cond is not None and np.isfinite(cond) and cond > 1e3 and len(sloppy) >= 2:
+            sloppy_idx_set = {i for i, w in sloppy if abs(w) > 0.15}
+            terms = ", ".join(f"{self._get_kinetic_param_label(i)} ({w:+.2f})" for i, w in sloppy[:4])
+            sloppy_text = f"Least determined combination: {terms}"
+
+        have_corr = (getattr(self, 'param_correlation', None) is not None and
+                     getattr(self, 'param_correlation_indices', None) is not None and
+                     len(self.param_correlation_indices) >= 2)
+
+        total_pages = 4 + (1 if have_corr else 0)
+        page_state = {'n': 1}
+
+        def _add_footer(fig):
+            """Pie de página discreto: nombre de archivo, fecha y nº de página (auto-incrementa)."""
+            fig.text(0.02, 0.015, base_name, fontsize=8, color='#8A8A8A', ha='left')
+            fig.text(0.98, 0.015, f"Page {page_state['n']} / {total_pages}", fontsize=8, color='#8A8A8A', ha='right')
+            fig.text(0.5, 0.015, datetime.datetime.now().strftime('%Y-%m-%d'),
+                     fontsize=8, color='#8A8A8A', ha='center')
+            page_state['n'] += 1
+
+        try:
+            with plt.rc_context(pub_rc):
                 with PdfPages(pdf_path) as pdf:
-                    
-                    # ==========================================
-                    # PÁGINA 1: RESUMEN Y TABLA DE PARÁMETROS
-                    # ==========================================
+
+                    # ==========================================================
+                    # PÁGINA 1 — PORTADA, DIAGNÓSTICO Y TABLA DE PARÁMETROS
+                    # ==========================================================
                     fig1 = Figure(figsize=(8.27, 11.69))
-                    canvas1 = FigureCanvasAgg(fig1)
-                    
-                    fig1.text(0.5, 0.92, f"Ultrafast Spectroscopy Analysis Report", ha='center', fontsize=18, fontweight='bold', color='#3C5488')
-                    fig1.text(0.5, 0.88, f"Dataset: {base_name}", ha='center', fontsize=14)
-                    fig1.text(0.5, 0.85, f"Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", ha='center', fontsize=10, color='gray')
-                    
-                    fig1.text(0.1, 0.78, f"Model Details:", fontsize=12, fontweight='bold')
-                    fig1.text(0.1, 0.75, f"Type: {self.model_type}")
-                    fig1.text(0.1, 0.72, f"Components: {self.numExp}")
+                    FigureCanvasAgg(fig1)
+
+                    fig1.add_artist(Rectangle((0, 0.93), 1, 0.07, transform=fig1.transFigure,
+                                               facecolor=HEADER_BLUE, edgecolor='none', zorder=0))
+                    fig1.text(0.5, 0.965, "Ultrafast Spectroscopy Analysis Report",
+                              ha='center', va='center', fontsize=19, fontweight='bold', color='white')
+
+                    fig1.text(0.5, 0.905, f"Dataset:  {base_name}", ha='center', fontsize=13, color='#222222')
+                    fig1.text(0.5, 0.882, f"Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                              ha='center', fontsize=9.5, color='gray')
+
+                    # --- Bloque "Model Details" / "Fit Quality & Identifiability" ---
+                    fig1.add_artist(Rectangle((0.08, 0.735), 0.84, 0.135, transform=fig1.transFigure,
+                                               facecolor='#F2F4F8', edgecolor='#D9DEE7', linewidth=1.0, zorder=0))
+
+                    fig1.text(0.11, 0.845, "Model Details", fontsize=11.5, fontweight='bold', color=ACCENT_BLUE)
+                    fig1.text(0.11, 0.822, f"Type:  {self.model_type}", fontsize=10)
+                    fig1.text(0.11, 0.800, f"Components:  {self.numExp}", fontsize=10)
                     use_art = getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked()
-                    fig1.text(0.1, 0.69, f"Coherent Artifact: {'Yes (' + self._get_artifact_mode() + ')' if use_art else 'No'}")
-                    
-                    cond = getattr(self, 'fit_condition_number', np.inf)
-                    rmsd = np.sqrt(np.mean(self.fit_resid**2))
-                    fig1.text(0.6, 0.78, f"Fit Quality:", fontsize=12, fontweight='bold')
-                    fig1.text(0.6, 0.75, f"RMSD: {rmsd:.2e}")
-                    fig1.text(0.6, 0.72, f"Condition Number: {cond:.2e}")
-                    
+                    fig1.text(0.11, 0.778,
+                              f"Coherent artifact:  {'Yes (' + self._get_artifact_mode() + ')' if use_art else 'No'}",
+                              fontsize=10)
+                    fig1.text(0.11, 0.756,
+                              f"Technique:  {getattr(self, 'tech', 'N/A')}   |   "
+                              f"NNLS (positive spectra):  {'Yes' if getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked() else 'No'}",
+                              fontsize=9.5)
+
+                    fig1.text(0.55, 0.845, "Fit Quality & Identifiability", fontsize=11.5, fontweight='bold', color=ACCENT_BLUE)
+                    rmsd = np.sqrt(np.mean(self.fit_resid ** 2))
+                    fig1.text(0.55, 0.822, f"RMSD:  {rmsd:.2e}", fontsize=10)
+                    fig1.text(0.55, 0.800,
+                              f"Condition number:  {cond:.2e}" if np.isfinite(cond) else "Condition number:  N/A",
+                              fontsize=10)
+                    fig1.text(0.55, 0.778, cond_msg, fontsize=10, fontweight='bold', color=cond_color)
+                    if sloppy_text is not None:
+                        fig1.text(0.55, 0.752, sloppy_text, fontsize=8, style='italic', color='#555555', wrap=True)
+
+                    # --- Bloque "Data Pre-processing" (reproducibilidad) ---
+                    fig1.add_artist(Rectangle((0.08, 0.60), 0.84, 0.115, transform=fig1.transFigure,
+                                               facecolor='#F2F4F8', edgecolor='#D9DEE7', linewidth=1.0, zorder=0))
+                    fig1.text(0.11, 0.688, "Data Pre-processing", fontsize=11.5, fontweight='bold', color=ACCENT_BLUE)
+
+                    excl_str = self.line_exclude.text().strip() if hasattr(self, 'line_exclude') else ''
+                    prep_left = [
+                        f"Baseline points:  {self.spin_bl.value() if hasattr(self, 'spin_bl') else 'N/A'}",
+                        f"Wavelength range:  {self.spin_wl_min.value():.1f} \u2013 {self.spin_wl_max.value():.1f} nm"
+                        if hasattr(self, 'spin_wl_min') else "Wavelength range:  N/A",
+                        f"Excluded WLs:  {excl_str if excl_str else 'None'}",
+                    ]
+                    prep_right = [
+                        f"Time range:  {self.spin_t_min.value():.3g} \u2013 {self.spin_t_max.value():.3g} ps"
+                        if hasattr(self, 'spin_t_min') else "Time range:  N/A",
+                        f"Binning:  {self.spin_bin.value() if hasattr(self, 'spin_bin') else 1}   |   "
+                        f"t<0 zeroed:  {'Yes' if hasattr(self, 'chk_zero_neg') and self.chk_zero_neg.isChecked() else 'No'}",
+                        f"Normalized (max|\u0394A|=1):  {'Yes' if hasattr(self, 'chk_norm_data') and self.chk_norm_data.isChecked() else 'No'}",
+                    ]
+                    for k, line in enumerate(prep_left):
+                        fig1.text(0.11, 0.665 - k * 0.022, line, fontsize=9.5)
+                    for k, line in enumerate(prep_right):
+                        fig1.text(0.55, 0.665 - k * 0.022, line, fontsize=9.5)
+
+                    # --- Tabla de parámetros ---
                     table_data = [["Parameter", "Value", "Error", "Unit"]]
-                    table_data.append(["w (IRF FWHM)", f"{self.fit_x[0]:.4g}", f"{self.ci[0]:.4g}" if len(self.ci)>0 else "N/A", "ps"])
-                    table_data.append(["t0 (Time Zero)", f"{self.fit_x[1]:.4g}", f"{self.ci[1]:.4g}" if len(self.ci)>1 else "N/A", "ps"])
-                    
+                    table_data.append(["w (IRF FWHM)", f"{self.fit_x[0]:.4g}",
+                                       f"{self.ci[0]:.4g}" if len(self.ci) > 0 else "N/A", "ps"])
+                    table_data.append(["t0 (Time Zero)", f"{self.fit_x[1]:.4g}",
+                                       f"{self.ci[1]:.4g}" if len(self.ci) > 1 else "N/A", "ps"])
+
                     if self.model_type == "Custom GUI Model":
                         for i, label in enumerate(self.current_custom_model.param_labels):
                             val = self.extracted_taus[i]
@@ -4224,186 +4371,265 @@ class GlobalFitPanel(QDialog):
                             val = self.extracted_taus[i]
                             err = self.extracted_errtaus[i] if self.extracted_errtaus is not None else 0.0
                             table_data.append([f"tau_{i+1}", f"{val:.4g}", f"{err:.4g}", "ps"])
-                            
-                    ax_tab = fig1.add_axes([0.1, 0.2, 0.8, 0.4])
+
+                    ax_tab = fig1.add_axes([0.09, 0.16, 0.82, 0.415])
                     ax_tab.axis('off')
                     table = ax_tab.table(cellText=table_data, loc='center', cellLoc='center')
                     table.auto_set_font_size(False)
-                    table.set_fontsize(11)
-                    table.scale(1, 1.8)
-                    
+                    table.set_fontsize(10.5)
+                    table.scale(1, 1.9)
+
                     for j in range(4):
-                        table[(0, j)].set_facecolor('#3C5488')
-                        table[(0, j)].get_text().set_color('white')
-                        table[(0, j)].set_text_props(weight='bold')
-                        
+                        cell = table[(0, j)]
+                        cell.set_facecolor(ACCENT_BLUE)
+                        cell.get_text().set_color('white')
+                        cell.set_text_props(weight='bold')
+
+                    any_highlighted = False
+                    for i in range(1, len(table_data)):
+                        param_idx = i - 1  # fila 1 -> índice 0 (w), fila 2 -> índice 1 (t0), etc.
+                        is_risky = param_idx in sloppy_idx_set
+                        any_highlighted = any_highlighted or is_risky
+                        row_color = WARN_ROW if is_risky else ('#F7F8FA' if i % 2 == 0 else 'white')
+                        for j in range(4):
+                            table[(i, j)].set_facecolor(row_color)
+                            table[(i, j)].set_edgecolor('#D9DEE7')
+
+                    if any_highlighted:
+                        fig1.text(0.09, 0.145,
+                                  "Highlighted rows: parameters contributing most to the least-determined "
+                                  "combination (see Fit Quality & Identifiability above).",
+                                  fontsize=8, style='italic', color='#B04545')
+
+                    _add_footer(fig1)
                     pdf.savefig(fig1)
-                    
-                # ==========================================
-                # PÁGINA 2: MAPAS 2D COMPARATIVOS (Corregido y Limpio)
-                # ==========================================
-                fig2 = Figure(figsize=(11.69, 8.27))
-                canvas2 = FigureCanvasAgg(fig2)
-                
-                wl = getattr(self, '_wl_proc', self.WL)
-                td = getattr(self, '_td_proc', self.TD)
-                
-                # Usamos GridSpec para controlar los espacios al milímetro
-                gs2 = gridspec.GridSpec(1, 3, figure=fig2, wspace=0.3, left=0.08, right=0.95, top=0.88, bottom=0.18)
-                
-                ax1 = fig2.add_subplot(gs2[0, 0])
-                ax2 = fig2.add_subplot(gs2[0, 1], sharex=ax1, sharey=ax1)
-                ax3 = fig2.add_subplot(gs2[0, 2], sharex=ax1, sharey=ax1)
-                
-                v_max = np.nanmax(self.data_c)
-                v_min = np.nanmin(self.data_c)
-                if hasattr(self, 'chk_sym_cmap') and self.chk_sym_cmap.isChecked():
-                    max_abs = max(abs(v_min), abs(v_max))
-                    v_min, v_max = -max_abs, max_abs
-                    
-                cmap = getattr(self, 'combo_cmap', None).currentText() if hasattr(self, 'combo_cmap') else 'jet'
-                
-                m1 = ax1.pcolormesh(wl, td, self.data_c.T, cmap=cmap, shading='auto', vmin=v_min, vmax=v_max)
-                m2 = ax2.pcolormesh(wl, td, self.fit_fitres.T, cmap=cmap, shading='auto', vmin=v_min, vmax=v_max)
-                
-                res_vals = self.fit_resid.flatten()
-                r_min, r_max = np.percentile(res_vals, 1), np.percentile(res_vals, 99)
-                m3 = ax3.pcolormesh(wl, td, self.fit_resid.T, cmap=cmap, shading='auto', vmin=r_min, vmax=r_max)
-                
-                ax1.set_title("1. Experimental Data")
-                ax2.set_title("2. Global Fit Model")
-                ax3.set_title("3. Residuals")
-                
-                for ax in [ax1, ax2, ax3]:
-                    ax.set_xlabel("Wavelength (nm)")
-                    if hasattr(self, 'yscale') and self.yscale == 'symlog':
-                        ax.set_yscale('symlog', linthresh=2)
-                ax1.set_ylabel("Delay (ps)")
-                
-                # Ocultar etiquetas del eje Y en los mapas centrales para que no se amontonen
-                plt.setp(ax2.get_yticklabels(), visible=False)
-                plt.setp(ax3.get_yticklabels(), visible=False)
-                
-                # Coordenadas limpias [izquierda, abajo, ancho, alto] para las barras de color
-                cax1 = fig2.add_axes([0.15, 0.08, 0.35, 0.03]) # Barra para los datos/fit (ocupa mapas 1 y 2)
-                cax2 = fig2.add_axes([0.65, 0.08, 0.25, 0.03]) # Barra para los residuos (mapa 3)
-                
-                fig2.colorbar(m2, cax=cax1, orientation='horizontal', label='$\Delta A$')
-                fig2.colorbar(m3, cax=cax2, orientation='horizontal', label='Residual')
-                
-                fig2.suptitle("2D Maps Comparison", fontsize=16, fontweight='bold', y=0.95)
-                pdf.savefig(fig2)
-                
-                    # ==========================================
-                    # PÁGINA 3: ESPECTROS SAS/DAS Y ERRORES VISIBLES
-                    # ==========================================
+
+                    # ==========================================================
+                    # PÁGINA 2 (opcional) — MATRIZ DE CORRELACIÓN DE PARÁMETROS
+                    # ==========================================================
+                    if have_corr:
+                        fig_corr = Figure(figsize=(8.27, 8.27))
+                        FigureCanvasAgg(fig_corr)
+                        ax_c = fig_corr.add_axes([0.28, 0.12, 0.62, 0.62])
+
+                        corr = self.param_correlation
+                        corr_idxs = list(self.param_correlation_indices)
+                        corr_labels = [self._get_kinetic_param_label(i) for i in corr_idxs]
+
+                        im = ax_c.imshow(corr, cmap='RdBu_r', vmin=-1, vmax=1)
+                        ax_c.set_xticks(range(len(corr_idxs)))
+                        ax_c.set_xticklabels(corr_labels, rotation=45, ha='right', fontsize=8.5)
+                        ax_c.set_yticks(range(len(corr_idxs)))
+                        ax_c.set_yticklabels(corr_labels, fontsize=8.5)
+                        ax_c.set_title("Kinetic Parameter Correlation Matrix", pad=12)
+
+                        for i in range(len(corr_idxs)):
+                            for j in range(len(corr_idxs)):
+                                val = corr[i, j]
+                                txt_color = 'white' if abs(val) > 0.6 else 'black'
+                                ax_c.text(j, i, f"{val:.2f}", ha='center', va='center',
+                                          fontsize=7.5, color=txt_color)
+
+                        cax_c = fig_corr.add_axes([0.28, 0.075, 0.62, 0.02])
+                        cb_c = fig_corr.colorbar(im, cax=cax_c, orientation='horizontal')
+                        cb_c.set_label('Correlation coefficient')
+
+                        fig_corr.text(0.5, 0.95,
+                                      "Values near \u00b11 mean two parameters cannot be determined independently "
+                                      "from the data (e.g. two very similar lifetimes).",
+                                      ha='center', fontsize=9, style='italic', color='#555555', wrap=True)
+
+                        _add_footer(fig_corr)
+                        pdf.savefig(fig_corr)
+
+                    # ==========================================================
+                    # PÁGINA — MAPAS 2D COMPARATIVOS
+                    # ==========================================================
+                    fig2 = Figure(figsize=(11.69, 8.27))
+                    FigureCanvasAgg(fig2)
+
+                    wl = getattr(self, '_wl_proc', self.WL)
+                    td = getattr(self, '_td_proc', self.TD)
+
+                    # Más margen inferior: deja sitio de sobra para las etiquetas del eje X y
+                    # la barra de color, evitando el solapamiento visto en versiones anteriores.
+                    gs2 = gridspec.GridSpec(1, 3, figure=fig2, wspace=0.22,
+                                            left=0.07, right=0.965, top=0.88, bottom=0.30)
+
+                    ax1 = fig2.add_subplot(gs2[0, 0])
+                    ax2 = fig2.add_subplot(gs2[0, 1], sharex=ax1, sharey=ax1)
+                    ax3 = fig2.add_subplot(gs2[0, 2], sharex=ax1, sharey=ax1)
+
+                    v_max = np.nanmax(self.data_c)
+                    v_min = np.nanmin(self.data_c)
+                    if hasattr(self, 'chk_sym_cmap') and self.chk_sym_cmap.isChecked():
+                        max_abs = max(abs(v_min), abs(v_max))
+                        v_min, v_max = -max_abs, max_abs
+
+                    cmap = getattr(self, 'combo_cmap', None).currentText() if hasattr(self, 'combo_cmap') else 'jet'
+
+                    m1 = ax1.pcolormesh(wl, td, self.data_c.T, cmap=cmap, shading='auto',
+                                        vmin=v_min, vmax=v_max, rasterized=True)
+                    m2 = ax2.pcolormesh(wl, td, self.fit_fitres.T, cmap=cmap, shading='auto',
+                                        vmin=v_min, vmax=v_max, rasterized=True)
+
+                    # Residuos: colormap divergente y límites simétricos centrados en 0 -- mucho
+                    # más legible que reutilizar 'jet' para una magnitud con signo.
+                    res_vals = self.fit_resid.flatten()
+                    r_abs = np.nanpercentile(np.abs(res_vals), 99)
+                    r_min, r_max = -r_abs, r_abs
+                    m3 = ax3.pcolormesh(wl, td, self.fit_resid.T, cmap='RdBu_r', shading='auto',
+                                        vmin=r_min, vmax=r_max, rasterized=True)
+
+                    titles = ["1. Experimental Data", "2. Global Fit Model", "3. Residuals"]
+                    for ax, title in zip([ax1, ax2, ax3], titles):
+                        ax.set_title(title, pad=8)
+                        ax.set_xlabel("Wavelength (nm)")
+                        if hasattr(self, 'yscale') and self.yscale == 'symlog':
+                            ax.set_yscale('symlog', linthresh=2)
+
+                    ax1.set_ylabel("Delay (ps)")
+                    plt.setp(ax2.get_yticklabels(), visible=False)
+                    plt.setp(ax3.get_yticklabels(), visible=False)
+
+                    # Barras de color horizontales, claramente separadas del eje X (nunca se tocan)
+                    cax1 = fig2.add_axes([0.10, 0.115, 0.40, 0.028])
+                    cax2 = fig2.add_axes([0.60, 0.115, 0.365, 0.028])
+
+                    cb1 = fig2.colorbar(m2, cax=cax1, orientation='horizontal')
+                    cb1.set_label(r'$\Delta A$  (Data / Fit)')
+                    cb1.ax.tick_params(labelsize=9)
+
+                    cb2 = fig2.colorbar(m3, cax=cax2, orientation='horizontal')
+                    cb2.set_label('Residual')
+                    cb2.ax.tick_params(labelsize=9)
+
+                    fig2.suptitle("2D Maps Comparison", fontsize=15, fontweight='bold', y=0.965)
+                    _add_footer(fig2)
+                    pdf.savefig(fig2)
+
+                    # ==========================================================
+                    # PÁGINA — ESPECTROS SAS/DAS Y ARTEFACTO COHERENTE
+                    # ==========================================================
                     fig3 = Figure(figsize=(8.27, 11.69))
-                    canvas3 = FigureCanvasAgg(fig3)
-                    
+                    FigureCanvasAgg(fig3)
+
                     ax_das = fig3.add_subplot(211 if use_art else 111)
                     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
-                    markers = ['o', 's', '^', 'D', 'v', 'p'] 
-                    
+                    markers = ['o', 's', '^', 'D', 'v', 'p']
+
                     for n in range(self.numExp):
                         color = colors[n % len(colors)]
                         marker = markers[n % len(markers)]
-                        
+
                         if self.model_type == "Custom GUI Model":
                             state_name = self.current_custom_model.states[n]
                             lbl = f"Species: {state_name}"
                         else:
                             tau_val = self.extracted_taus[n]
                             tau_err = self.extracted_errtaus[n] if self.extracted_errtaus is not None else 0.0
-                            lbl = f"$\\tau_{n+1}$ = {tau_val:.2f} $\\pm$ {tau_err:.2f} ps"
-            
+                            lbl = fr"$\tau_{n+1}$ = {tau_val:.2f} $\pm$ {tau_err:.2f} ps"
+
                         if self.errAs is not None:
                             err_y = np.nan_to_num(self.errAs[n])
-                            # Aumentamos ligeramente el capsize y el grosor para que los errores se aprecie bien
-                            ax_das.errorbar(wl, self.As[n], yerr=err_y, label=lbl, color=color, fmt=f'-{marker}', markersize=5, capsize=4, elinewidth=1.2)
+                            ax_das.errorbar(wl, self.As[n], yerr=err_y, label=lbl, color=color,
+                                            fmt=f'-{marker}', markersize=5, capsize=3.5, elinewidth=1.1,
+                                            markeredgewidth=0.8)
                         else:
                             ax_das.plot(wl, self.As[n], f'-{marker}', label=lbl, color=color, markersize=5)
-                            
+
                     ax_das.set_xlabel("Wavelength (nm)")
-                    ax_das.set_ylabel("Amplitude (ΔA)")
-                    ax_das.set_title("Species / Decay Associated Spectra (SAS / DAS)", fontweight='bold')
-                    ax_das.legend(frameon=True, fontsize=10)
-                    ax_das.axhline(0, color='k', linestyle='--', alpha=0.5)
-                    ax_das.grid(True, linestyle=':', alpha=0.4)
-                    
+                    ax_das.set_ylabel(r"Amplitude ($\Delta A$)")
+                    ax_das.set_title("Species / Decay Associated Spectra (SAS / DAS)")
+                    ax_das.legend(fontsize=9.5, loc='best')
+                    ax_das.axhline(0, color='k', linestyle='--', linewidth=1.0, alpha=0.5)
+                    ax_das.grid(True, **GRID_KW)
+
                     if use_art and getattr(self, 'Artifact_Spectra', None) is not None:
                         ax_art = fig3.add_subplot(212)
                         art_mode = self._get_artifact_mode()
-                        
+
                         if art_mode == 'raman':
-                            labels = ["Raman (φ₀)"]
+                            labels = [r"Raman ($\varphi_0$)"]
                         elif art_mode == 'xpm':
-                            labels = ["XPM (φ₁)", "XPM (φ₂)"]
+                            labels = [r"XPM ($\varphi_1$)", r"XPM ($\varphi_2$)"]
                         else:
-                            labels = ["Raman (φ₀)", "XPM (φ₁)", "XPM (φ₂)"]
-                            
-                        art_colors = ['gray', 'purple', 'brown']
+                            labels = [r"Raman ($\varphi_0$)", r"XPM ($\varphi_1$)", r"XPM ($\varphi_2$)"]
+
+                        art_colors = ['#6C757D', '#7B2CBF', '#8C564B']
                         for i, lbl in enumerate(labels):
                             ax_art.plot(wl, self.Artifact_Spectra[i], '-', color=art_colors[i], lw=2, label=lbl)
-                            
+
                         ax_art.set_xlabel("Wavelength (nm)")
                         ax_art.set_ylabel("Amplitude")
-                        ax_art.set_title("Coherent Artifact Spectra", fontweight='bold')
-                        ax_art.legend(frameon=True, fontsize=10)
-                        ax_art.axhline(0, color='k', linestyle='--', alpha=0.5)
-                        ax_art.grid(True, linestyle=':', alpha=0.4)
-                        
-                    fig3.tight_layout(pad=3.0)
+                        ax_art.set_title("Coherent Artifact Spectra")
+                        ax_art.legend(fontsize=9.5)
+                        ax_art.axhline(0, color='k', linestyle='--', linewidth=1.0, alpha=0.5)
+                        ax_art.grid(True, **GRID_KW)
+
+                    fig3.suptitle("Spectral Analysis", fontsize=15, fontweight='bold', y=0.975)
+                    fig3.tight_layout(rect=[0.03, 0.04, 0.97, 0.955], pad=2.5)
+                    _add_footer(fig3)
                     pdf.savefig(fig3)
-    
-                    # ==========================================
-                    # PÁGINA 4: CINÉTICAS REPRESENTATIVAS (NUEVO)
-                    # ==========================================
+
+                    # ==========================================================
+                    # PÁGINA — CINÉTICAS REPRESENTATIVAS
+                    # ==========================================================
                     fig4 = Figure(figsize=(8.27, 11.69))
-                    canvas4 = FigureCanvasAgg(fig4)
-                    
-                    # Seleccionar 4 longitudes de onda representativas espaciadas en el espectro
+                    FigureCanvasAgg(fig4)
+
                     n_wls = len(wl)
                     indices_test = [int(n_wls * 0.2), int(n_wls * 0.4), int(n_wls * 0.6), int(n_wls * 0.8)]
-                    
-                    axs_kin = [fig4.add_subplot(2, 2, i+1) for i in range(4)]
-                    
+                    axs_kin = [fig4.add_subplot(2, 2, i + 1) for i in range(4)]
+
                     for idx_ax, w_idx in enumerate(indices_test):
                         ax = axs_kin[idx_ax]
                         target_wl = wl[w_idx]
                         y_exp = self.data_c[w_idx, :]
                         y_fit = self.fit_fitres[w_idx, :]
-                        
-                        ax.plot(td, y_exp, 'o', color='#1f77b4', markersize=3, alpha=0.6, label='Data')
-                        ax.plot(td, y_fit, '-', color='#d62728', linewidth=2, label='Fit')
-                        
-                        ax.set_title(f"Kinetics @ {target_wl:.1f} nm", fontsize=11, fontweight='bold')
+
+                        ax.plot(td, y_exp, 'o', color='#1f77b4', markersize=3, alpha=0.55, label='Data')
+                        ax.plot(td, y_fit, '-', color='#d62728', linewidth=1.8, label='Fit')
+
+                        ax.set_title(f"Kinetics @ {target_wl:.1f} nm", fontsize=11)
                         ax.set_xlabel("Delay (ps)")
-                        ax.set_ylabel("ΔA")
+                        ax.set_ylabel(r"$\Delta A$")
                         ax.set_xscale('symlog', linthresh=1.0)
-                        ax.grid(True, which="both", ls=":", alpha=0.4)
-                        ax.legend(frameon=True, fontsize=9)
-                        
-                    fig4.suptitle("Representative Kinetic Traces (Data vs Fit)", fontsize=16, fontweight='bold', y=0.95)
-                    fig4.tight_layout(rect=[0.05, 0.05, 0.95, 0.92])
-                    fig4.subplots_adjust(hspace=0.3, wspace=0.3)
+                        ax.grid(True, which="both", **GRID_KW)
+                        ax.legend(fontsize=8.5)
+
+                    fig4.suptitle("Representative Kinetic Traces (Data vs Fit)", fontsize=15, fontweight='bold', y=0.975)
+                    fig4.tight_layout(rect=[0.04, 0.04, 0.97, 0.94], pad=2.0)
+                    fig4.subplots_adjust(hspace=0.32, wspace=0.30)
+                    _add_footer(fig4)
                     pdf.savefig(fig4)
-                    
-            except Exception as e:
-                QApplication.restoreOverrideCursor()
-                import traceback
-                QMessageBox.critical(self, "PDF Error", f"Error generating PDF:\n{str(e)}\n\n{traceback.format_exc()}")
-                return
-                
+
+        except PermissionError:
             QApplication.restoreOverrideCursor()
-            
-            from PyQt5.QtGui import QDesktopServices
-            from PyQt5.QtCore import QUrl
-            
-            reply = QMessageBox.question(self, "PDF Generated", 
-                                         f"Report successfully saved as:\n{pdf_path}\n\nDo you want to open it now?",
-                                         QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-            if reply == QMessageBox.Yes:
-                QDesktopServices.openUrl(QUrl.fromLocalFile(pdf_path))            
+            QMessageBox.critical(
+                self, "File in use",
+                f"Could not write the PDF file:\n{pdf_path}\n\n"
+                f"It is most likely open in another program (a PDF viewer, cloud-sync app, etc.). "
+                f"Close it and try again."
+            )
+            return
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            import traceback
+            QMessageBox.critical(self, "PDF Error", f"Error generating PDF:\n{str(e)}\n\n{traceback.format_exc()}")
+            return
+
+        QApplication.restoreOverrideCursor()
+
+        from PyQt5.QtGui import QDesktopServices
+        from PyQt5.QtCore import QUrl
+
+        reply = QMessageBox.question(self, "PDF Generated",
+                                      f"Report successfully saved as:\n{pdf_path}\n\nDo you want to open it now?",
+                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if reply == QMessageBox.Yes:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(pdf_path))
+
     def plot_das_and_more(self):
                 """Opens an external window to display DAS/SAS (Decay/Species Associated Spectra)."""
                 if self.As is None: return
