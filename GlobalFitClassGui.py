@@ -2961,17 +2961,16 @@ class GlobalFitPanel(QDialog):
             print(f"Plotting error: {e}")
             
     def on_mouse_move(self, event):
-        """Dynamic cross-sections: actualiza instantáneamente los cortes 1D al pasar el ratón."""
-        
-        # 1. PROTECCIÓN: Si el ratón no está sobre ningún gráfico, salimos inmediatamente
+        """Dynamic cross-sections at 60fps usando Blitting."""
         if event.inaxes is None:
             self.lbl_cursor.setText("Cursor: Out of the 2D MAP")
             return
 
         active_map_dict = None
         data_matrix = None
-        
-        # 2. PROTECCIÓN: Usamos .get('map') en lugar de ['map'] para evitar KeyErrors
+        canvas = event.canvas
+
+        # Identificar qué lienzo estamos tocando
         if hasattr(self, 'ax_exp') and isinstance(self.ax_exp, dict) and event.inaxes == self.ax_exp.get('map'):
             active_map_dict = self.ax_exp
             data_matrix = self.data_c
@@ -2981,39 +2980,69 @@ class GlobalFitPanel(QDialog):
         elif hasattr(self, 'ax_resid') and isinstance(self.ax_resid, dict) and event.inaxes == self.ax_resid.get('map'):
             active_map_dict = self.ax_resid
             data_matrix = getattr(self, 'fit_resid', None)
-            
-        # 3. PROTECCIÓN: Si faltan las líneas 1D porque se están borrando, ignoramos el evento
+
         if active_map_dict is None or data_matrix is None or 'line_spec' not in active_map_dict:
             self.lbl_cursor.setText("Cursor: Out of the 2D MAP")
             return
-            
+
         x = event.xdata
         y = event.ydata
         if x is None or y is None: return
-        
+
         Xs = getattr(self, '_wl_proc', self.WL)
         Ys = getattr(self, '_td_proc', self.TD)
-        
+
         try:
-            # Buscar el píxel más cercano a donde está el ratón
+            # Buscar el píxel más cercano
             idx_wl = (np.abs(Xs - x)).argmin()
             idx_td = (np.abs(Ys - y)).argmin()
             z_val = data_matrix[idx_wl, idx_td]
-            
-            # Actualizar el texto superior
+
             self.lbl_cursor.setText(f"Cursor: λ = {x:.1f} nm  |  Delay = {y:.3f} ps  |  ΔA = {z_val:.3e}")
-            
-            # --- LA MAGIA: Actualizar las líneas 1D ---
+
+            # 1. Actualizar los datos matemáticos de las líneas
             active_map_dict['line_spec'].set_data(Xs, data_matrix[:, idx_td])
             active_map_dict['line_kin'].set_data(data_matrix[idx_wl, :], Ys)
             
-            # Mover la cruz blanca sobre el mapa
-            active_map_dict['vline'].set_xdata([Xs[idx_wl]])
-            active_map_dict['hline'].set_ydata([Ys[idx_td]])
+            # Las líneas axvline/axhline esperan listas de 2 coordenadas
+            active_map_dict['vline'].set_xdata([Xs[idx_wl], Xs[idx_wl]])
+            active_map_dict['hline'].set_ydata([Ys[idx_td], Ys[idx_td]])
+
+            # --- MAGIA DEL BLITTING (60 FPS) ---
+            # Capturamos el tamaño actual de la ventana
+            current_size = (canvas.figure.bbox.width, canvas.figure.bbox.height)
             
-            # Refrescar solo el lienzo que estamos tocando
-            event.canvas.draw_idle()
-            
+            # Si no hay caché, o si el usuario ha redimensionado la ventana, tomamos una "foto" limpia
+            if getattr(canvas, '_bg_cache', None) is None or getattr(canvas, '_last_size', None) != current_size:
+                # Escondemos los cursores temporalmente
+                active_map_dict['line_spec'].set_visible(False)
+                active_map_dict['line_kin'].set_visible(False)
+                active_map_dict['vline'].set_visible(False)
+                active_map_dict['hline'].set_visible(False)
+                
+                # Renderizamos todo lo estático (mapa, ejes, labels) - Lento, pero ocurre solo 1 vez
+                canvas.draw()
+                canvas._bg_cache = canvas.copy_from_bbox(canvas.figure.bbox)
+                canvas._last_size = current_size
+                
+                # Volvemos a encender los cursores
+                active_map_dict['line_spec'].set_visible(True)
+                active_map_dict['line_kin'].set_visible(True)
+                active_map_dict['vline'].set_visible(True)
+                active_map_dict['hline'].set_visible(True)
+
+            # 2. Restauramos la "foto" de fondo limpia al instante
+            canvas.restore_region(canvas._bg_cache)
+
+            # 3. Dibujamos solo los 4 vectores móviles encima de la foto (Ultra-rápido)
+            active_map_dict['spec'].draw_artist(active_map_dict['line_spec'])
+            active_map_dict['kin'].draw_artist(active_map_dict['line_kin'])
+            active_map_dict['map'].draw_artist(active_map_dict['vline'])
+            active_map_dict['map'].draw_artist(active_map_dict['hline'])
+
+            # 4. Volcamos los píxeles a la pantalla
+            canvas.blit(canvas.figure.bbox)
+
         except Exception:
             pass
         
