@@ -436,85 +436,85 @@ class KMatrixModel:
         return np.array(ini), np.array(low), np.array(upp)
 
 
-def get_concentration_matrix(self, x_nl_params, t, w, t0, use_art=False, artifact_mode='both'):
-        """Toma los parámetros, construye la matriz K, la diagonaliza y devuelve poblaciones."""
-        N = len(self.states)
-        K = np.zeros((N, N))
-        
-        p_dict = dict(zip(self.param_labels, x_nl_params))
-        
-        tau_totals = {}
-        for src, tgt, p_type, label in self.transitions:
-            if p_type == "tau":
-                tau_totals[src] = p_dict[label]
-
-        for src, tgt, p_type, label in self.transitions:
-            idx_src = self.states.index(src)
-            val_param = p_dict[label]
+    def get_concentration_matrix(self, x_nl_params, t, w, t0, use_art=False, artifact_mode='both'):
+            """Toma los parámetros, construye la matriz K, la diagonaliza y devuelve poblaciones."""
+            N = len(self.states)
+            K = np.zeros((N, N))
             
-            if p_type == "tau":
-                k_val = 1.0 / max(val_param, 1e-12)
-                K[idx_src, idx_src] -= k_val 
-                if tgt != "S0":
-                    idx_tgt = self.states.index(tgt)
-                    K[idx_tgt, idx_src] += k_val 
-                    
-            elif p_type == "gamma":
-                tau_total = tau_totals.get(src, 1.0)
-                k_total = 1.0 / max(tau_total, 1e-12)
-                k_via = val_param * k_total
+            p_dict = dict(zip(self.param_labels, x_nl_params))
+            
+            tau_totals = {}
+            for src, tgt, p_type, label in self.transitions:
+                if p_type == "tau":
+                    tau_totals[src] = p_dict[label]
+    
+            for src, tgt, p_type, label in self.transitions:
+                idx_src = self.states.index(src)
+                val_param = p_dict[label]
                 
-                if tgt != "S0":
-                    idx_tgt = self.states.index(tgt)
-                    K[idx_tgt, idx_src] += k_via
+                if p_type == "tau":
+                    k_val = 1.0 / max(val_param, 1e-12)
+                    K[idx_src, idx_src] -= k_val 
+                    if tgt != "S0":
+                        idx_tgt = self.states.index(tgt)
+                        K[idx_tgt, idx_src] += k_val 
+                        
+                elif p_type == "gamma":
+                    tau_total = tau_totals.get(src, 1.0)
+                    k_total = 1.0 / max(tau_total, 1e-12)
+                    k_via = val_param * k_total
                     
-        # Perturbación determinista para evitar autovalores degenerados
-        diag_vals = np.diagonal(K).copy()
-        eps_base = 1e-9
-        perturbacion = eps_base * np.arange(N)
-        np.fill_diagonal(K, diag_vals * (1 + perturbacion))
-        
-        eigenvalues, V = np.linalg.eig(K)   
-        
-        try:
-            V_inv = np.linalg.inv(V)
-        except np.linalg.LinAlgError:
-            V_inv = np.linalg.pinv(V)
-
-        targets = [tgt for src, tgt, p_type, label in self.transitions]
-        roots = [s for s in self.states if s not in targets]
-        
-        P0 = np.zeros(N)
-        if roots:
-            idx_p0 = self.states.index(roots[0])
-        else:
-            idx_p0 = 0
-        P0[idx_p0] = 1.0
-        
-        c = V_inv @ P0
-        
-        eigenvalues = np.real(eigenvalues)
-        taus_eff = np.zeros_like(eigenvalues)
-        
-        for i, ev in enumerate(eigenvalues):
-            if ev > -1e-12:
-                taus_eff[i] = 1e8
+                    if tgt != "S0":
+                        idx_tgt = self.states.index(tgt)
+                        K[idx_tgt, idx_src] += k_via
+                        
+            # Perturbación determinista para evitar autovalores degenerados
+            diag_vals = np.diagonal(K).copy()
+            eps_base = 1e-9
+            perturbacion = eps_base * np.arange(N)
+            np.fill_diagonal(K, diag_vals * (1 + perturbacion))
+            
+            eigenvalues, V = np.linalg.eig(K)   
+            
+            try:
+                V_inv = np.linalg.inv(V)
+            except np.linalg.LinAlgError:
+                V_inv = np.linalg.pinv(V)
+    
+            targets = [tgt for src, tgt, p_type, label in self.transitions]
+            roots = [s for s in self.states if s not in targets]
+            
+            P0 = np.zeros(N)
+            if roots:
+                idx_p0 = self.states.index(roots[0])
             else:
-                taus_eff[i] = -1.0 / ev
+                idx_p0 = 0
+            P0[idx_p0] = 1.0
+            
+            c = V_inv @ P0
+            
+            eigenvalues = np.real(eigenvalues)
+            taus_eff = np.zeros_like(eigenvalues)
+            
+            for i, ev in enumerate(eigenvalues):
+                if ev > -1e-12:
+                    taus_eff[i] = 1e8
+                else:
+                    taus_eff[i] = -1.0 / ev
+                    
+            E_matrix = convolved_exp_vectorized(t, t0, taus_eff, w)
+            
+            pops = []
+            for i in range(N):
+                state_pop = np.zeros_like(t)
+                for j in range(N):
+                    peso = np.real(V[i, j] * c[j])
+                    state_pop += peso * E_matrix[:, j]
+                pops.append(state_pop)
                 
-        E_matrix = convolved_exp_vectorized(t, t0, taus_eff, w)
-        
-        pops = []
-        for i in range(N):
-            state_pop = np.zeros_like(t)
-            for j in range(N):
-                peso = np.real(V[i, j] * c[j])
-                state_pop += peso * E_matrix[:, j]
-            pops.append(state_pop)
+            C = np.column_stack(pops)
             
-        C = np.column_stack(pops)
-        
-        if use_art: 
-            C = np.hstack([C, get_coherent_artifact(t, t0, w, mode=artifact_mode)])
-            
-        return C
+            if use_art: 
+                C = np.hstack([C, get_coherent_artifact(t, t0, w, mode=artifact_mode)])
+                
+            return C
