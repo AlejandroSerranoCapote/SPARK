@@ -145,10 +145,7 @@ def convolved_exp_vectorized(t, t0, taus, w):
     
     out = np.zeros_like(x)
     
-    # ---------------------------------------------------------
-    # EL ARREGLO: Expandimos las matrices para que coincidan con 
-    # la forma de la máscara booleana antes de indexar.
-    # ---------------------------------------------------------
+
     t_diff_full = np.broadcast_to(t_diff, x.shape)
     tau_full = np.broadcast_to(tau_safe, x.shape)
     
@@ -486,10 +483,13 @@ class KMatrixModel:
             
             P0 = np.zeros(N)
             if roots:
-                idx_p0 = self.states.index(roots[0])
+                # --- Poblar TODOS los estados iniciales ---
+                for root_state in roots:
+                    idx_p0 = self.states.index(root_state)
+                    P0[idx_p0] = 1.0
             else:
                 idx_p0 = 0
-            P0[idx_p0] = 1.0
+                P0[idx_p0] = 1.0
             
             c = V_inv @ P0
             

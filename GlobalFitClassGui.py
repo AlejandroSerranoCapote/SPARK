@@ -6,9 +6,10 @@ from PyQt5.QtWidgets import (
     QMessageBox, QProgressBar, QTableWidget, QTableWidgetItem,
     QHeaderView, QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, 
     QFormLayout, QWidget, QTabWidget, QApplication, QInputDialog,
-    QCheckBox, QLineEdit, QListView,QFileDialog,QScrollArea,QShortcut
+    QCheckBox, QLineEdit, QListView,QFileDialog,QScrollArea,QShortcut,
+    QGraphicsOpacityEffect
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QThread, pyqtSignal,QEasingCurve
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor,QKeySequence
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -163,7 +164,75 @@ DARK_THEME_STYLE = """
     }
 """
 
+class ToastNotification(QWidget):
+    """
+    Notificación flotante no bloqueante con animación Fade-In y Fade-Out.
+    (Versión corregida para evitar el fondo transparente en Windows).
+    """
+    def __init__(self, text, parent=None, duration=3000):
+        super().__init__(parent)
+        # Configurar como ventana flotante sin bordes que no bloquea clics
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents) 
         
+        # Envolver el QLabel en un layout para que el CSS se renderice correctamente
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.label = QLabel(text)
+        self.label.setAlignment(Qt.AlignCenter)
+        
+        # Estilo "Apple": oscuro, semi-transparente, bordes redondeados
+        self.label.setStyleSheet("""
+            QLabel {
+                background-color: rgba(30, 33, 40, 230);
+                color: #FFFFFF;
+                border-radius: 8px;
+                padding: 10px 24px;
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 10pt;
+                font-weight: bold;
+            }
+        """)
+        layout.addWidget(self.label)
+        self.adjustSize()
+        
+        self.duration = duration
+        self.opacity_anim = QPropertyAnimation(self, b"windowOpacity")
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.hide_toast)
+
+    def show_toast(self):
+        # Posicionar en el centro inferior de la ventana padre
+        if self.parent():
+            parent_rect = self.parent().rect()
+            parent_pos = self.parent().mapToGlobal(parent_rect.topLeft())
+            x = parent_pos.x() + (parent_rect.width() - self.width()) // 2
+            # Lo subimos a 70px para que flote limpiamente por encima de la barra de progreso
+            y = parent_pos.y() + parent_rect.height() - self.height() - 70 
+            self.move(x, y)
+        
+        self.setWindowOpacity(0.0)
+        self.show()
+        
+        # Animación de entrada (Fade In)
+        self.opacity_anim.setDuration(300)
+        self.opacity_anim.setStartValue(0.0)
+        self.opacity_anim.setEndValue(1.0)
+        self.opacity_anim.start()
+        
+        # Iniciar la cuenta atrás para desaparecer
+        self.timer.start(self.duration)
+
+    def hide_toast(self):
+        # Animación de salida (Fade Out)
+        self.opacity_anim.setDuration(400)
+        self.opacity_anim.setStartValue(self.windowOpacity())
+        self.opacity_anim.setEndValue(0.0)
+        self.opacity_anim.finished.connect(self.close) # Destruir al terminar
+        self.opacity_anim.start()        
 class Surface3DWindow(QDialog):
     """
     Independent window to visualize the 3D plot without blocking the main application.
@@ -641,6 +710,45 @@ class CompareSetupDialog(QDialog):
                 custom_colors.append(color_btn.property("color_val"))
 
         return target_wl, normalize, custom_title, custom_labels, ordered_indices, custom_colors
+
+class DiffMapDialog(QDialog):
+    """Diálogo para seleccionar dos datasets y calcular su diferencia 2D."""
+    def __init__(self, filenames, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Difference 2D Map")
+        if parent and hasattr(parent, 'styleSheet'):
+            self.setStyleSheet(parent.styleSheet())
+        
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Select datasets to subtract (A - B):"))
+        
+        form = QFormLayout()
+        self.combo_A = QComboBox()
+        self.combo_A.addItems(filenames)
+        
+        self.combo_B = QComboBox()
+        self.combo_B.addItems(filenames)
+        if len(filenames) > 1:
+            self.combo_B.setCurrentIndex(1)
+        
+        form.addRow("Dataset A (Base):", self.combo_A)
+        form.addRow("Dataset B (Subtracted):", self.combo_B)
+        layout.addLayout(form)
+        
+        btns = QHBoxLayout()
+        btn_ok = QPushButton("Calculate Difference")
+        btn_ok.setStyleSheet("background-color: #3B82F6; color: white; font-weight: bold;")
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        
+        btns.addWidget(btn_ok)
+        btns.addWidget(btn_cancel)
+        layout.addLayout(btns)
+        
+    def get_indices(self):
+        return self.combo_A.currentIndex(), self.combo_B.currentIndex()
+    
     
 class PaperPlotterWindow(QDialog):
     """
@@ -1606,7 +1714,21 @@ class GlobalFitPanel(QDialog):
         main_layout.addWidget(self.right_area)
     
         self.setLayout(main_layout)
-    
+        
+        # --- ANIMACIONES PREMIUM (EFECTO APPLE) ---
+        # 1. Preparar el efecto de opacidad para el panel izquierdo
+        self.sidebar_opacity = QGraphicsOpacityEffect(self.sidebar_tabs)
+        self.sidebar_opacity.setOpacity(1.0)
+        self.sidebar_tabs.setGraphicsEffect(self.sidebar_opacity)
+        
+        # 2. Configurar el motor de la animación
+        self.sidebar_anim = QPropertyAnimation(self.sidebar_opacity, b"opacity")
+        self.sidebar_anim.setDuration(200) # 200 milisegundos (súper rápido y sutil)
+        self.sidebar_anim.setEasingCurve(QEasingCurve.OutQuad) # Curva de aceleración suave
+        
+        # 3. Conectar el clic de la pestaña a la animación
+        self.sidebar_tabs.currentChanged.connect(self._animate_sidebar_tab)
+        
         # --- IMPORTANT: INITIALIZE PLOTTING VARIABLES ---
         self.pcm_exp = None
         self.cbar_exp = None
@@ -1614,7 +1736,22 @@ class GlobalFitPanel(QDialog):
         self.cbar_fit = None
         self.pcm_resid = None
         self.cbar_resid = None
-
+        
+    def _animate_sidebar_tab(self, index):
+        """Dispara un fade-in suave al cambiar de pestaña en el panel izquierdo."""
+        self.sidebar_anim.stop()
+        
+        
+        self.sidebar_anim.setStartValue(0.85) 
+        
+        self.sidebar_anim.setEndValue(1.0)   
+        self.sidebar_anim.start()
+        
+    def show_toast(self, message, duration=3000):
+        """Muestra una notificación flotante no bloqueante en la ventana actual."""
+        self.toast = ToastNotification(message, parent=self, duration=duration)
+        self.toast.show_toast()
+        
     def _init_sidebar_ui(self):
         """Sets up all the widgets of the left panel divided into workflow tabs."""
         layout_data = QVBoxLayout(self.tab_data)
@@ -1634,17 +1771,30 @@ class GlobalFitPanel(QDialog):
         
         h_btns = QHBoxLayout()
         self.btn_load = QPushButton("Load .npy")
+        self.btn_load.setAutoDefault(False)
         self.btn_load.clicked.connect(self.load_data) 
         h_btns.addWidget(self.btn_load)
     
         self.btn_parent = QPushButton("Use Parent Data")
+        self.btn_parent.setAutoDefault(False)
         self.btn_parent.clicked.connect(self.use_parent_data) 
         h_btns.addWidget(self.btn_parent)
         v_load.addLayout(h_btns)
         
+        # --- NUEVO: Fila compartida para comparaciones ---
+        h_compare = QHBoxLayout()
+        
         self.btn_compare = QPushButton("Compare Kinetics")
+        self.btn_compare.setAutoDefault(False)
         self.btn_compare.clicked.connect(self.compare_kinetics)
-        v_load.addWidget(self.btn_compare)
+        h_compare.addWidget(self.btn_compare)
+        
+        self.btn_diff = QPushButton("Difference 2D Map")
+        self.btn_diff.setAutoDefault(False)
+        self.btn_diff.clicked.connect(self.show_difference_map)
+        h_compare.addWidget(self.btn_diff)
+        
+        v_load.addLayout(h_compare)
         
         v_load.addWidget(QLabel("<b>Visualizing Dataset:</b>"))
         h_dataset = QHBoxLayout()
@@ -1655,6 +1805,7 @@ class GlobalFitPanel(QDialog):
         
         self.btn_remove_dataset = QPushButton("Del")
         self.btn_remove_dataset.setToolTip("Remove current dataset")
+        self.btn_remove_dataset.setAutoDefault(False)
         self.btn_remove_dataset.setStyleSheet("background-color: #DC3545; color: white; font-weight: bold; max-width: 30px;")
         self.btn_remove_dataset.clicked.connect(self.remove_active_dataset)
         h_dataset.addWidget(self.btn_remove_dataset, stretch=1)
@@ -1671,10 +1822,14 @@ class GlobalFitPanel(QDialog):
         self.spin_bl.setRange(0, 500)
         self.spin_bl.setValue(0)
         self.spin_bl.valueChanged.connect(lambda val: self._preview_data_processing())
+        self.spin_bl.editingFinished.connect(self._preview_data_processing)
         form_prep.addRow("Baseline Pts:", self.spin_bl)
 
         self.spin_wl_min = QDoubleSpinBox(); self.spin_wl_min.setRange(0, 10000); self.spin_wl_min.setDecimals(2)
         self.spin_wl_max = QDoubleSpinBox(); self.spin_wl_max.setRange(0, 10000); self.spin_wl_max.setDecimals(2)
+        self.spin_wl_min.editingFinished.connect(self._preview_data_processing) 
+        self.spin_wl_max.editingFinished.connect(self._preview_data_processing)
+ 
         h_wl = QHBoxLayout()
         h_wl.addWidget(self.spin_wl_min)
         h_wl.addWidget(QLabel("to"))
@@ -1688,6 +1843,9 @@ class GlobalFitPanel(QDialog):
     
         self.spin_t_min = QDoubleSpinBox(); self.spin_t_min.setRange(-100, 1e6); self.spin_t_min.setDecimals(3)
         self.spin_t_max = QDoubleSpinBox(); self.spin_t_max.setRange(-100, 1e6); self.spin_t_max.setDecimals(3)
+        self.spin_t_min.editingFinished.connect(self._preview_data_processing) 
+        self.spin_t_max.editingFinished.connect(self._preview_data_processing)
+        
         h_time = QHBoxLayout()
         h_time.addWidget(self.spin_t_min)
         h_time.addWidget(QLabel("to"))
@@ -1697,6 +1855,7 @@ class GlobalFitPanel(QDialog):
         self.spin_bin = QSpinBox()
         self.spin_bin.setRange(1, 50)
         self.spin_bin.setValue(1)
+        self.spin_bin.editingFinished.connect(self._preview_data_processing)
         form_prep.addRow("Binning:", self.spin_bin)
         
         self.chk_zero_neg = QCheckBox("Set t < 0 to zero (background)")
@@ -1710,6 +1869,8 @@ class GlobalFitPanel(QDialog):
         
         self.btn_preview = QPushButton("Apply and Preview")
         self.btn_preview.setStyleSheet("background-color: #28A745; border: 1px solid #218838; color: white;") 
+        self.btn_preview.setAutoDefault(True)
+        self.btn_preview.setDefault(True)
         self.btn_preview.clicked.connect(self._preview_data_processing) 
         form_prep.addRow(self.btn_preview)
 
@@ -1980,35 +2141,61 @@ class GlobalFitPanel(QDialog):
         """Lanza el módulo de maquetación de espectros SAS/DAS de forma autónoma."""
         self.sasdas_plotter = SASDASPlotterWindow(self)
         self.sasdas_plotter.show()
+        
     def save_project(self):
-        """Empaqueta toda la UI, guesses y el modelo visual en un archivo .proj"""
+        """Empaqueta toda la UI, guesses, resultados y el modelo visual en un archivo .proj"""
         import pickle
         
         path, _ = QFileDialog.getSaveFileName(self, "Save Kinetic Project", "", "Project Files (*.proj)")
         if not path: return
 
-        # 1. Guardar estado de la interfaz y variables de VarPro
         proj_data = {
             'ui': {
                 'numExp': self.spin_numExp.value(),
                 'model_idx': self.combo_model.currentIndex(),
                 'tech_idx': self.combo_tech.currentIndex(),
                 'artifact': self.chk_artifact.isChecked(),
-                'nnls': self.chk_nnls.isChecked()
+                'nnls': self.chk_nnls.isChecked(),
+                'bl_pts': self.spin_bl.value(),
+                'wl_min': self.spin_wl_min.value(),
+                'wl_max': self.spin_wl_max.value(),
+                't_min': self.spin_t_min.value(),
+                't_max': self.spin_t_max.value(),
+                'exclude': self.line_exclude.text() if hasattr(self, 'line_exclude') else '',
+                'binning': self.spin_bin.value() if hasattr(self, 'spin_bin') else 1,
+                'zero_neg': self.chk_zero_neg.isChecked() if hasattr(self, 'chk_zero_neg') else False,
+                'norm_data': self.chk_norm_data.isChecked() if hasattr(self, 'chk_norm_data') else False,
+                # --- NUEVO: Parámetros de Visualización ---
+                'scale_idx': self.combo_scale.currentIndex() if hasattr(self, 'combo_scale') else 0,
+                'cmap_idx': self.combo_cmap.currentIndex() if hasattr(self, 'combo_cmap') else 0,
+                'sym_cmap': self.chk_sym_cmap.isChecked() if hasattr(self, 'chk_sym_cmap') else False
             },
             'guesses': {
-                'ini': self.ini,
-                'limi': self.limi,
-                'lims': self.lims,
+                'ini': getattr(self, 'ini', None),
+                'limi': getattr(self, 'limi', None),
+                'lims': getattr(self, 'lims', None),
                 'is_fixed': getattr(self, 'is_fixed', None)
             },
-            'visual_model': None
+            'visual_model': None,
+            'data': {
+                'data_raw': getattr(self, 'data_raw', None),
+                'WL': getattr(self, 'WL', None),
+                'TD': getattr(self, 'TD', None)
+            },
+            'fit_data': {
+                'fit_x': getattr(self, 'fit_x', None),
+                'fit_fitres': getattr(self, 'fit_fitres', None),
+                'fit_resid': getattr(self, 'fit_resid', None),
+                'extracted_taus': getattr(self, 'extracted_taus', None),
+                'extracted_errtaus': getattr(self, 'extracted_errtaus', None),
+                'As': getattr(self, 'As', None),
+                'errAs': getattr(self, 'errAs', None),
+                'ci': getattr(self, 'ci', None)
+            }
         }
 
-        # 2. Guardar el modelo gráfico (Cajas y Flechas) si existe
         if hasattr(self, 'model_builder_dlg') and self.model_builder_dlg is not None:
             canvas = self.model_builder_dlg.canvas
-            # Guardamos las coordenadas X e Y exactas de cada caja
             nodes = [{'name': name, 'x': node.pos().x(), 'y': node.pos().y()} for name, node in canvas.nodes.items()]
             edges = []
             for item in canvas.scene.items():
@@ -2021,16 +2208,15 @@ class GlobalFitPanel(QDialog):
                     })
             proj_data['visual_model'] = {'nodes': nodes, 'edges': edges}
 
-        # Escribir a disco
         try:
             with open(path, 'wb') as f:
                 pickle.dump(proj_data, f)
-            QMessageBox.information(self, "Éxito", "¡Proyecto guardado correctamente!\nAhora puedes compartir este archivo .proj")
+                self.show_toast("Project saved")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Fallo al guardar el proyecto: {e}")
-
+            QMessageBox.critical(self, "Error", f"Failed to save the project: {e}")
+            
     def load_project(self):
-        """Lee un archivo .proj y reconstruye la interfaz y el lienzo gráfico."""
+        """Lee un archivo .proj y reconstruye absolutamente toda la interfaz, datos y gráficos."""
         import pickle
         
         path, _ = QFileDialog.getOpenFileName(self, "Load Kinetic Project", "", "Project Files (*.proj)")
@@ -2040,52 +2226,111 @@ class GlobalFitPanel(QDialog):
             with open(path, 'rb') as f:
                 proj_data = pickle.load(f)
 
-            # 1. Restaurar Interfaz
+            # 1. Restaurar Datos Experimentales Crudos
+            data_dict = proj_data.get('data', {})
+            raw_mat = data_dict.get('data_raw', data_dict.get('data_c')) 
+            
+            if raw_mat is not None:
+                self.data_raw = raw_mat
+                self.WL = data_dict.get('WL', getattr(self, 'WL', None))
+                self.TD = data_dict.get('TD', getattr(self, 'TD', None))
+                
+                self.data_raw_list = [self.data_raw]
+                self.WL_list = [self.WL]
+                self.TD_list = [self.TD]
+                self.filenames = ["Loaded_Project_Data"]
+                
+                self.combo_active_dataset.blockSignals(True)
+                self.combo_active_dataset.clear()
+                self.combo_active_dataset.addItems(self.filenames)
+                self.combo_active_dataset.setCurrentIndex(0)
+                self.combo_active_dataset.blockSignals(False)
+                
+                self.label_status.setText("Loaded 1 File from Project")
+                self._update_ui_limits_from_data()
+
+            # 2. Restaurar TODA la Interfaz ANTES de procesar
             ui = proj_data['ui']
             self.spin_numExp.setValue(ui['numExp'])
             self.combo_model.setCurrentIndex(ui['model_idx'])
             self.combo_tech.setCurrentIndex(ui['tech_idx'])
             self.chk_artifact.setChecked(ui['artifact'])
             self.chk_nnls.setChecked(ui['nnls'])
+            
+            if 'bl_pts' in ui:
+                self.spin_bl.setValue(ui['bl_pts'])
+                self.spin_wl_min.setValue(ui['wl_min'])
+                self.spin_wl_max.setValue(ui['wl_max'])
+                self.spin_t_min.setValue(ui['t_min'])
+                self.spin_t_max.setValue(ui['t_max'])
+                if hasattr(self, 'line_exclude'): self.line_exclude.setText(ui.get('exclude', ''))
+                if hasattr(self, 'spin_bin'): self.spin_bin.setValue(ui.get('binning', 1))
+                if hasattr(self, 'chk_zero_neg'): self.chk_zero_neg.setChecked(ui.get('zero_neg', False))
+                if hasattr(self, 'chk_norm_data'): self.chk_norm_data.setChecked(ui.get('norm_data', False))
+            
+            # --- NUEVO: Restaurar Parámetros de Visualización ---
+            if 'scale_idx' in ui and hasattr(self, 'combo_scale'):
+                self.combo_scale.setCurrentIndex(ui['scale_idx'])
+            if 'cmap_idx' in ui and hasattr(self, 'combo_cmap'):
+                self.combo_cmap.setCurrentIndex(ui['cmap_idx'])
+            if 'sym_cmap' in ui and hasattr(self, 'chk_sym_cmap'):
+                self.chk_sym_cmap.setChecked(ui['sym_cmap'])
 
-            # 2. Restaurar Guesses (Valores iniciales y límites)
+            # 3. APLICAR EL PRE-PROCESADO (Una sola vez y automáticamente)
+            if raw_mat is not None:
+                self._preview_data_processing()
+                
+            # 4. Restaurar Guesses
             guesses = proj_data['guesses']
-            self.ini = guesses['ini']
-            self.limi = guesses['limi']
-            self.lims = guesses['lims']
-            if guesses['is_fixed'] is not None:
-                self.is_fixed = guesses['is_fixed']
+            if guesses.get('ini') is not None:
+                self.ini = guesses['ini']
+                self.limi = guesses['limi']
+                self.lims = guesses['lims']
+                if guesses['is_fixed'] is not None:
+                    self.is_fixed = guesses['is_fixed']
 
-            # 3. Restaurar Modelo Visual (Magia)
-            v_model = proj_data['visual_model']
+            # 5. Restaurar Modelo Visual
+            v_model = proj_data.get('visual_model')
             if v_model is not None:
-                # Si el usuario no había abierto el builder en esta sesión, lo creamos en la sombra
                 if not hasattr(self, 'model_builder_dlg') or self.model_builder_dlg is None:
                     self.model_builder_dlg = ModelBuilderDialog(self)
-                
                 canvas = self.model_builder_dlg.canvas
                 canvas.scene.clear()
                 canvas.nodes.clear()
                 self.model_builder_dlg.table.setRowCount(0)
-
-                # Recreamos las cajas en sus coordenadas exactas
-                for n in v_model['nodes']:
-                    canvas.add_state(n['name'], x=n['x'], y=n['y'])
-                
-                # Recreamos las flechas
+                for n in v_model['nodes']: canvas.add_state(n['name'], x=n['x'], y=n['y'])
                 for e in v_model['edges']:
                     src = canvas.nodes[e['source']]
                     tgt = canvas.nodes[e['target']]
                     edge = TransitionEdge(src, tgt, e['type'], e['label'])
                     canvas.scene.addItem(edge)
-
-                # Re-compilamos la matemática por debajo
                 self.current_custom_model = self.model_builder_dlg.get_compiled_model()
+            
+            # 6. Restaurar Fit Results y Dibujar todo
+            if 'fit_data' in proj_data and proj_data['fit_data'].get('fit_fitres') is not None:
+                fit_d = proj_data['fit_data']
+                self.fit_x = fit_d['fit_x']
+                self.fit_fitres = fit_d['fit_fitres']
+                self.fit_resid = fit_d['fit_resid']
+                self.extracted_taus = fit_d['extracted_taus']
+                self.extracted_errtaus = fit_d['extracted_errtaus']
+                self.As = fit_d['As']
+                self.errAs = fit_d['errAs']
+                self.ci = fit_d['ci']
+                
+                self._update_fit_canvas()
+                self._update_resid_canvas()
+                self.btn_show_das.setEnabled(True)
+                self.btn_export_pdf.setEnabled(True)
+                
+            self.btn_run.setEnabled(True)
+            self.btn_batch.setEnabled(True)
 
-            QMessageBox.information(self, "Éxito", "¡Proyecto cargado con éxito!\n\nAsegúrate de tener un Dataset (.npy) cargado y ya puedes hacer clic en RUN FIT o abrir el Model Builder para ver tu esquema.")
+            self.show_toast("Project loaded successfully")
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo cargar el proyecto. Puede estar corrupto o ser de una versión antigua.\n\nDetalle: {e}")    
+            QMessageBox.critical(self, "Error", f"No se pudo cargar el proyecto.\n\nDetalle: {e}")
+            
     def run_svd(self):
         """Executes Singular Value Decomposition (SVD) on the active dataset to identify components."""
         if self.data_c is None:
@@ -2808,6 +3053,64 @@ class GlobalFitPanel(QDialog):
     
             except Exception as e:
                 QMessageBox.critical(self, "Plot Error", f"Failed to plot comparison: {e}")
+                
+    def show_difference_map(self):
+        """Calcula y muestra la resta matricial de dos datasets seleccionados."""
+        if not getattr(self, 'data_c_list', None) or len(self.data_c_list) < 2:
+            QMessageBox.warning(self, "Not enough data", "Please load at least 2 datasets to calculate a difference.")
+            return
+            
+        dlg = DiffMapDialog(self.filenames, self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+            
+        idx_A, idx_B = dlg.get_indices()
+        
+        data_A = self.data_c_list[idx_A]
+        data_B = self.data_c_list[idx_B]
+        
+        # Validar que las matrices tienen la misma forma
+        if data_A.shape != data_B.shape:
+            QMessageBox.critical(self, "Shape Mismatch", 
+                                 f"Datasets have different shapes.\n"
+                                 f"A: {data_A.shape}\nB: {data_B.shape}\n\n"
+                                 f"Make sure both datasets have been processed with the exact same Wavelength/Time cropping.")
+            return
+            
+        # 1. Calcular la diferencia matemática
+        diff_data = data_A - data_B
+        
+        # 2. Extraer ejes
+        use_proc = hasattr(self, 'wl_proc_list') and len(self.wl_proc_list) > idx_A
+        wl = self.wl_proc_list[idx_A] if use_proc else self.WL_list[idx_A]
+        td = self.td_proc_list[idx_A] if use_proc else self.TD_list[idx_A]
+        
+        # 3. Dibujar
+        fig = Figure(figsize=(8, 6))
+        ax = fig.add_subplot(111)
+        
+        # Escala de color divergente centrada en 0
+        v_abs = np.nanmax(np.abs(diff_data))
+        vmin, vmax = -v_abs, v_abs
+        
+        pcm = ax.pcolormesh(wl, td, diff_data.T, cmap='RdBu_r.', shading='auto', vmin=vmin, vmax=vmax)
+        ax.set_xlabel("Wavelength (nm)", fontweight='bold')
+        ax.set_ylabel("Delay (ps)", fontweight='bold')
+        
+        title_A = os.path.splitext(self.filenames[idx_A])[0]
+        title_B = os.path.splitext(self.filenames[idx_B])[0]
+        ax.set_title(f"Difference Map\n[{title_A}]  -  [{title_B}]", fontsize=11, fontweight='bold')
+        
+        if hasattr(self, 'yscale') and self.yscale == 'symlog':
+            ax.set_yscale('symlog', linthresh=2.0)
+            
+        fig.colorbar(pcm, ax=ax, label='ΔA (Difference)')
+        fig.tight_layout()
+        
+        # Usamos tu visor de gráficos existente para mostrarlo de forma flotante
+        self.diff_viewer = PlotViewerWindow(fig, title="Difference 2D Map", parent=self)
+        self.diff_viewer.show()
+        
     def _preview_data_processing(self):
         """
         Procesa los datos crudos para TODOS los archivos cargados aplicando: 
@@ -2914,11 +3217,17 @@ class GlobalFitPanel(QDialog):
 
     
                     
-        # Actualizar variables del modelo global usando el primer archivo
+        
+        # Actualizar variables del modelo global usando el archivo SELECCIONADO 
         if self.data_c_list:
-            self.data_c = self.data_c_list[0]
-            self._wl_proc = self.wl_proc_list[0]
-            self._td_proc = self.td_proc_list[0]
+            current_idx = self.combo_active_dataset.currentIndex()
+            # Si por algún motivo el índice es inválido, usamos 0 por defecto
+            if current_idx < 0 or current_idx >= len(self.data_c_list):
+                current_idx = 0
+                
+            self.data_c = self.data_c_list[current_idx]
+            self._wl_proc = self.wl_proc_list[current_idx]
+            self._td_proc = self.td_proc_list[current_idx]
             
             self._update_exp_canvas(use_processed=True)
             self.label_status.setText(f"Processed {len(self.data_c_list)} files")
@@ -3411,8 +3720,9 @@ class GlobalFitPanel(QDialog):
         previous_state = self.undo_stack.pop()
         self._apply_state(previous_state)
         
-        self.label_status.setText("Undo applied (Ctrl+Z)")
-
+        #self.label_status.setText("Undo applied (Ctrl+Z)")
+        self.show_toast("↶ Undo applied", duration=1500)
+        
     def redo(self):
         """Ctrl+Y: Rehace el estado deshecho."""
         if not self.redo_stack:
@@ -3430,8 +3740,8 @@ class GlobalFitPanel(QDialog):
         next_state = self.redo_stack.pop()
         self._apply_state(next_state)
         
-        self.label_status.setText("Redo applied (Ctrl+Y)")
-        
+        #self.label_status.setText("Redo applied (Ctrl+Y)")
+        self.show_toast("↷ Redo applied", duration=1500)
     def _open_guess_editor_and_update(self):
             """Opens a dialog to manually edit initial guesses, bounds, and fixed parameters."""
             numExp = self.spin_numExp.value()
@@ -3468,6 +3778,18 @@ class GlobalFitPanel(QDialog):
             dlg = QDialog(self)
             dlg.setWindowTitle(f"Edit Initial Guesses - {model_str}")
             dlg.resize(800, 600)
+            
+            # --- ANIMACIÓN DE FADE-IN PARA LA VENTANA ---
+            dlg.setWindowOpacity(0.0) # Nace completamente invisible
+            
+            # Usamos el propio diálogo como "padre" de la animación para que se destruya con él
+            self.dlg_anim = QPropertyAnimation(dlg, b"windowOpacity", dlg)
+            self.dlg_anim.setDuration(250)
+            self.dlg_anim.setStartValue(0.0)
+            self.dlg_anim.setEndValue(1.0)
+            self.dlg_anim.setEasingCurve(QEasingCurve.OutCubic)
+            self.dlg_anim.start()
+            
             v = QVBoxLayout()
             
             # Initialize Table Widget
@@ -3922,23 +4244,28 @@ class GlobalFitPanel(QDialog):
             # 3. Amplitudes (DAS/SAS) en el formato que espera SASDASPlotterWindow:
             #    líneas "# tauN=valor+-error" seguidas de columnas Wavelength / AN / AN_err
             tau_comment_lines = []
+            
+            # --- NUEVO: GUARDAR SIEMPRE LA IRF (w) Y EL t0 EN LA CABECERA ---
+            w_val = x[0]
+            w_err = self.ci[0] if (self.ci is not None and len(self.ci) > 0) else 0.0
+            t0_val = x[1]
+            t0_err = self.ci[1] if (self.ci is not None and len(self.ci) > 1) else 0.0
+            tau_comment_lines.append(f"irf_fwhm={w_val:.6g}+-{w_err:.6g}")
+            tau_comment_lines.append(f"t0={t0_val:.6g}+-{t0_err:.6g}")
+            # ----------------------------------------------------------------
+            
             for n in range(numExp):
                 tau_val = self.extracted_taus[n] if n < len(self.extracted_taus) else np.nan
                 err_val = self.extracted_errtaus[n] if (self.extracted_errtaus is not None and n < len(self.extracted_errtaus)) else 0.0
                 tau_comment_lines.append(f"tau{n+1}={tau_val:.6g}+-{err_val:.6g}")
             
-            # --- NUEVO: PARÁMETROS DEL ARTEFACTO COHERENTE EN LA CABECERA ---
+            # --- PARÁMETROS DEL ARTEFACTO COHERENTE EN LA CABECERA ---
             if use_art:
-                w_val = x[0]
-                w_err = self.ci[0] if (self.ci is not None and len(self.ci) > 0) else 0.0
-                t0_val = x[1]
-                t0_err = self.ci[1] if (self.ci is not None and len(self.ci) > 1) else 0.0
                 tau_comment_lines.append(f"coherent_artifact=True")
                 tau_comment_lines.append(f"artifact_mode={art_mode}")
-                tau_comment_lines.append(f"irf_fwhm_w={w_val:.6g}+-{w_err:.6g} ps")
-                tau_comment_lines.append(f"t0={t0_val:.6g}+-{t0_err:.6g} ps")
             
             col_headers = ["Wavelength"]
+            
             amp_columns = [WL]
             for n in range(numExp):
                 col_headers.append(f"A{n+1}")
@@ -3979,16 +4306,16 @@ class GlobalFitPanel(QDialog):
                     f.write(f"# {line}\n")
                 f.write("\t".join(col_headers) + "\n")
                 np.savetxt(f, amp_matrix, fmt='%.6e', delimiter='\t')
-            
-            # --- RECUPERACIÓN DE LA INTERFAZ GRÁFICA (LO QUE FALTABA) ---
+           
             self._update_fit_canvas()
             self._update_resid_canvas()
             self.btn_show_das.setEnabled(True)
             self.btn_export_pdf.setEnabled(True)
+            
             if not getattr(self, 'is_batch_running', False):
                 self.show_results_summary()
                 rmsd = np.sqrt(np.mean(resid**2))
-                QMessageBox.information(self, "Fit Complete", f"Optimization finished successfully.\nRMSD: {rmsd:.2e}")
+                self.show_toast(f"Fit completed successfully (RMSD: {rmsd:.2e})")
                 
     def compute_profile_likelihood(self, param_idx, n_steps=15, confidence=0.95, span_sigma=6, progress_callback=None):
         """
@@ -4273,7 +4600,7 @@ class GlobalFitPanel(QDialog):
                      getattr(self, 'param_correlation_indices', None) is not None and
                      len(self.param_correlation_indices) >= 2)
 
-        total_pages = 4 + (1 if have_corr else 0)
+        total_pages = 5 + (1 if have_corr else 0) 
         page_state = {'n': 1}
 
         def _add_footer(fig):
@@ -4353,45 +4680,50 @@ class GlobalFitPanel(QDialog):
                     for k, line in enumerate(prep_right):
                         fig1.text(0.55, 0.665 - k * 0.022, line, fontsize=9.5)
 
-                    # --- Tabla de parámetros ---
-                    table_data = [["Parameter", "Value", "Error", "Unit"]]
-                    table_data.append(["w (IRF FWHM)", f"{self.fit_x[0]:.4g}",
+                    # --- Tabla de parámetros (CON INITIAL GUESS) ---
+                    table_data = [["Parameter", "Initial Guess", "Final Value", "Error", "Unit"]]
+                    table_data.append(["w (IRF FWHM)", f"{self.ini[0]:.4g}", f"{self.fit_x[0]:.4g}",
                                        f"{self.ci[0]:.4g}" if len(self.ci) > 0 else "N/A", "ps"])
-                    table_data.append(["t0 (Time Zero)", f"{self.fit_x[1]:.4g}",
+                    table_data.append(["t0 (Time Zero)", f"{self.ini[1]:.4g}", f"{self.fit_x[1]:.4g}",
                                        f"{self.ci[1]:.4g}" if len(self.ci) > 1 else "N/A", "ps"])
 
                     if self.model_type == "Custom GUI Model":
                         for i, label in enumerate(self.current_custom_model.param_labels):
+                            ini_val = self.ini[2+i]
                             val = self.extracted_taus[i]
                             err = self.extracted_errtaus[i] if self.extracted_errtaus is not None else 0.0
                             unit = "" if "gamma" in label.lower() else "ps"
-                            table_data.append([label, f"{val:.4g}", f"{err:.4g}", unit])
+                            table_data.append([label, f"{ini_val:.4g}", f"{val:.4g}", f"{err:.4g}", unit])
                     else:
                         for i in range(self.numExp):
+                            ini_val = self.ini[2+i]
                             val = self.extracted_taus[i]
                             err = self.extracted_errtaus[i] if self.extracted_errtaus is not None else 0.0
-                            table_data.append([f"tau_{i+1}", f"{val:.4g}", f"{err:.4g}", "ps"])
+                            table_data.append([f"tau_{i+1}", f"{ini_val:.4g}", f"{val:.4g}", f"{err:.4g}", "ps"])
 
-                    ax_tab = fig1.add_axes([0.09, 0.16, 0.82, 0.415])
+                    # Hacemos la tabla un poco más ancha para que quepan las 5 columnas
+                    ax_tab = fig1.add_axes([0.05, 0.16, 0.90, 0.415]) 
                     ax_tab.axis('off')
                     table = ax_tab.table(cellText=table_data, loc='center', cellLoc='center')
                     table.auto_set_font_size(False)
                     table.set_fontsize(10.5)
                     table.scale(1, 1.9)
 
-                    for j in range(4):
+                    # Estilizar la cabecera (5 columnas)
+                    for j in range(5):
                         cell = table[(0, j)]
                         cell.set_facecolor(ACCENT_BLUE)
                         cell.get_text().set_color('white')
                         cell.set_text_props(weight='bold')
 
+                    # Estilizar filas e identificar parámetros "resbaladizos"
                     any_highlighted = False
                     for i in range(1, len(table_data)):
-                        param_idx = i - 1  # fila 1 -> índice 0 (w), fila 2 -> índice 1 (t0), etc.
+                        param_idx = i - 1  
                         is_risky = param_idx in sloppy_idx_set
                         any_highlighted = any_highlighted or is_risky
                         row_color = WARN_ROW if is_risky else ('#F7F8FA' if i % 2 == 0 else 'white')
-                        for j in range(4):
+                        for j in range(5):
                             table[(i, j)].set_facecolor(row_color)
                             table[(i, j)].set_edgecolor('#D9DEE7')
 
@@ -4509,12 +4841,20 @@ class GlobalFitPanel(QDialog):
                     pdf.savefig(fig2)
 
                     # ==========================================================
-                    # PÁGINA — ESPECTROS SAS/DAS Y ARTEFACTO COHERENTE
+                    # PÁGINA — ESPECTROS SAS/DAS, ARTEFACTO E HISTOGRAMA
                     # ==========================================================
                     fig3 = Figure(figsize=(8.27, 11.69))
                     FigureCanvasAgg(fig3)
 
-                    ax_das = fig3.add_subplot(211 if use_art else 111)
+                    # Si hay artefacto usamos 3 filas, si no, dividimos la hoja en 2
+                    if use_art:
+                        ax_das = fig3.add_subplot(311)
+                        ax_art = fig3.add_subplot(312)
+                        ax_hist = fig3.add_subplot(313)
+                    else:
+                        ax_das = fig3.add_axes([0.12, 0.55, 0.80, 0.35])
+                        ax_hist = fig3.add_axes([0.12, 0.08, 0.80, 0.35])
+                    
                     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
                     markers = ['o', 's', '^', 'D', 'v', 'p']
 
@@ -4545,10 +4885,9 @@ class GlobalFitPanel(QDialog):
                     ax_das.axhline(0, color='k', linestyle='--', linewidth=1.0, alpha=0.5)
                     ax_das.grid(True, **GRID_KW)
 
+                    # Dibujar Artefacto (Si existe)
                     if use_art and getattr(self, 'Artifact_Spectra', None) is not None:
-                        ax_art = fig3.add_subplot(212)
                         art_mode = self._get_artifact_mode()
-
                         if art_mode == 'raman':
                             labels = [r"Raman ($\varphi_0$)"]
                         elif art_mode == 'xpm':
@@ -4566,12 +4905,32 @@ class GlobalFitPanel(QDialog):
                         ax_art.legend(fontsize=9.5)
                         ax_art.axhline(0, color='k', linestyle='--', linewidth=1.0, alpha=0.5)
                         ax_art.grid(True, **GRID_KW)
+                        
+                    # --- NUEVO: Histograma de Residuales ---
+                    res_flat = self.fit_resid.flatten()
+                    res_flat = res_flat[~np.isnan(res_flat)] # Por seguridad
+                    
+                    ax_hist.hist(res_flat, bins=100, density=True, color='#B0C4DE', edgecolor='#778899', alpha=0.7)
+                    
+                    # Dibujar curva de Gauss ideal
+                    mu, std = np.mean(res_flat), np.std(res_flat)
+                    x_pdf = np.linspace(np.min(res_flat), np.max(res_flat), 200)
+                    y_pdf = (1 / (std * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x_pdf - mu) / std)**2)
+                    ax_hist.plot(x_pdf, y_pdf, 'r-', lw=2, label=f'Ideal Gaussian\n$\mu$={mu:.2e}, $\sigma$={std:.2e}')
+                    
+                    ax_hist.set_title("Residuals Distribution (White Noise Check)", fontsize=11, fontweight='bold')
+                    ax_hist.set_xlabel("Residual Value (ΔA)")
+                    ax_hist.set_ylabel("Density")
+                    ax_hist.legend(fontsize=9)
+                    ax_hist.grid(True, **GRID_KW)
 
-                    fig3.suptitle("Spectral Analysis", fontsize=15, fontweight='bold', y=0.975)
-                    fig3.tight_layout(rect=[0.03, 0.04, 0.97, 0.955], pad=2.5)
+                    fig3.suptitle("Spectral Analysis & Residuals Diagnostics", fontsize=15, fontweight='bold', y=0.975)
+                    if use_art:
+                        fig3.tight_layout(rect=[0.03, 0.04, 0.97, 0.955], pad=2.5)
                     _add_footer(fig3)
                     pdf.savefig(fig3)
-
+                    
+                    
                     # ==========================================================
                     # PÁGINA — CINÉTICAS REPRESENTATIVAS
                     # ==========================================================
@@ -4603,6 +4962,76 @@ class GlobalFitPanel(QDialog):
                     fig4.subplots_adjust(hspace=0.32, wspace=0.30)
                     _add_footer(fig4)
                     pdf.savefig(fig4)
+                    
+                    # ==========================================================
+                    # PÁGINA 5 — SVD (SINGULAR VALUE DECOMPOSITION)
+                    # ==========================================================
+                    # Nos aseguramos de calcular el SVD si el usuario no hizo clic en el botón antes
+                    if not hasattr(self, 'svd_s') or self.svd_s is None:
+                        U_svd, s_svd, Vh_svd = np.linalg.svd(self.data_c, full_matrices=False)
+                        self.svd_U = U_svd
+                        self.svd_s = s_svd
+                        self.svd_V = Vh_svd.T
+
+                    fig5 = Figure(figsize=(8.27, 11.69))
+                    FigureCanvasAgg(fig5)
+                    
+                    gs_svd = gridspec.GridSpec(3, 1, figure=fig5, hspace=0.35, left=0.12, right=0.92, top=0.90, bottom=0.08)
+                    ax_scree = fig5.add_subplot(gs_svd[0, 0])
+                    ax_uspec = fig5.add_subplot(gs_svd[1, 0])
+                    ax_vtkin = fig5.add_subplot(gs_svd[2, 0])
+
+                    n_comp = min(len(self.svd_s), 10)
+                    n_show = self.numExp 
+                    
+                    # 1. Scree Plot
+                    ax_scree.semilogy(range(1, n_comp + 1), self.svd_s[:n_comp], 'o-', color='#d62728', markersize=6, lw=1.5)
+                    ax_scree.axvline(n_show + 0.5, color='k', linestyle='--', alpha=0.5, label=f'Chosen Cutoff ({n_show} components)')
+                    ax_scree.set_title("SVD: Singular Values (Scree Plot)", fontsize=11, fontweight='bold')
+                    ax_scree.set_ylabel("Singular Value (Log Scale)")
+                    ax_scree.set_xlabel("Component Index")
+                    ax_scree.set_xticks(range(1, n_comp + 1))
+                    ax_scree.grid(True, which="both", **GRID_KW)
+                    ax_scree.legend()
+
+                    # 2. Spectral Components
+                    cmap_svd = plt.get_cmap("tab10")
+                    for i in range(min(n_show + 1, len(self.svd_s))): 
+                        c = cmap_svd(i % 10)
+                        ls = '-' if i < n_show else ':'
+                        lw = 2.0 if i < n_show else 1.2
+                        lbl = f"Comp {i+1}" + (" (Noise?)" if i >= n_show else "")
+                        ax_uspec.plot(wl, self.svd_U[:, i], color=c, linestyle=ls, linewidth=lw, label=lbl)
+                    
+                    ax_uspec.set_title(f"SVD: First {min(n_show + 1, len(self.svd_s))} Spectral Components (Left Singular Vectors)", fontsize=11, fontweight='bold')
+                    ax_uspec.set_xlabel("Wavelength (nm)")
+                    ax_uspec.set_ylabel("Amplitude")
+                    ax_uspec.axhline(0, color='k', linestyle='-', alpha=0.3, lw=1)
+                    ax_uspec.legend(fontsize=9, loc='best')
+                    ax_uspec.grid(True, **GRID_KW)
+
+                    # 3. Temporal Components
+                    for i in range(min(n_show + 1, len(self.svd_s))):
+                        c = cmap_svd(i % 10)
+                        ls = '-' if i < n_show else ':'
+                        lw = 2.0 if i < n_show else 1.2
+                        lbl = f"Comp {i+1}" + (" (Noise?)" if i >= n_show else "")
+                        ax_vtkin.plot(td, self.svd_V[:, i], color=c, linestyle=ls, linewidth=lw, label=lbl)
+                    
+                    ax_vtkin.set_title(f"SVD: First {min(n_show + 1, len(self.svd_s))} Temporal Components (Right Singular Vectors)", fontsize=11, fontweight='bold')
+                    ax_vtkin.set_xlabel("Delay (ps)")
+                    ax_vtkin.set_ylabel("Amplitude")
+                    if hasattr(self, 'yscale') and self.yscale == 'symlog':
+                        # Le ponemos linthresh 1.0 para que la visualización del SVD sea estándar
+                        ax_vtkin.set_xscale('symlog', linthresh=1.0) 
+                    ax_vtkin.axhline(0, color='k', linestyle='-', alpha=0.3, lw=1)
+                    ax_vtkin.legend(fontsize=9, loc='best')
+                    ax_vtkin.grid(True, which='both', **GRID_KW)
+
+                    fig5.suptitle("Singular Value Decomposition (SVD) Analysis", fontsize=15, fontweight='bold', y=0.975)
+                    _add_footer(fig5)
+                    pdf.savefig(fig5)
+                    
 
         except PermissionError:
             QApplication.restoreOverrideCursor()

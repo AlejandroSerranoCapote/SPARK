@@ -372,6 +372,81 @@ class MainApp(QMainWindow):
         window = GlobalFitPanel()
         self.open_tool(window)
         
+class ManualChirpDialog(QDialog):
+    """Diálogo para introducir manualmente o cargar los parámetros del Chirp."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Manual / Load Chirp Parameters")
+        self.resize(350, 180)
+        self.setStyleSheet(MODULES_STYLESHEET)
+        
+        layout = QVBoxLayout(self)
+        
+        # Selección del modelo
+        self.combo_mode = QComboBox()
+        self.combo_mode.addItems(["nonlinear (a, b, c, d)", "poly (c4, c3, c2, c1, c0)"])
+        layout.addWidget(QLabel("<b>Model Type:</b>"))
+        layout.addWidget(self.combo_mode)
+        
+        # Entrada de parámetros
+        self.txt_params = QLineEdit()
+        self.txt_params.setPlaceholderText("e.g. 1.873, 2.598, 0.00044, -145.03")
+        layout.addWidget(QLabel("<b>Parameters (comma separated):</b>"))
+        layout.addWidget(self.txt_params)
+        
+        # Botón para cargar desde archivo txt
+        self.btn_load_file = QPushButton("Load from _fit_params.txt")
+        self.btn_load_file.setStyleSheet("background-color: #3B82F6; color: white; font-weight: bold;")
+        self.btn_load_file.clicked.connect(self.load_from_file)
+        layout.addWidget(self.btn_load_file)
+        
+        layout.addSpacing(10)
+        
+        # Botones Aceptar / Cancelar
+        btns = QHBoxLayout()
+        btn_ok = QPushButton("Apply Correction")
+        btn_ok.setObjectName("BtnGreen")
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+        
+        btns.addWidget(btn_ok)
+        btns.addWidget(btn_cancel)
+        layout.addLayout(btns)
+        
+    def load_from_file(self):
+        """Parsea el archivo txt de parámetros generado previamente."""
+        path, _ = QFileDialog.getOpenFileName(self, "Select fit_params.txt", "", "Text Files (*.txt)")
+        if path:
+            try:
+                with open(path, 'r') as f:
+                    lines = f.readlines()
+                    
+                params = []
+                for line in lines:
+                    if "Fit method:" in line:
+                        if "poly" in line:
+                            self.combo_mode.setCurrentIndex(1)
+                        else:
+                            self.combo_mode.setCurrentIndex(0)
+                    elif "=" in line:
+                        # Extraer el valor numérico a la derecha del igual
+                        val = float(line.split("=")[1].strip())
+                        params.append(str(val))
+                        
+                self.txt_params.setText(", ".join(params))
+            except Exception as e:
+                QMessageBox.warning(self, "Error parsing file", f"Could not read parameters:\n{e}")
+                
+    def get_data(self):
+        """Devuelve el modelo y la lista de parámetros introducidos."""
+        mode = "nonlinear" if self.combo_mode.currentIndex() == 0 else "poly"
+        try:
+            params = [float(x.strip()) for x in self.txt_params.text().split(',')]
+            return mode, params
+        except ValueError:
+            return None, None
+        
 class FLUPSAnalyzer(QMainWindow):
     """
     Main application window for FLUPS (Fluorescence Upconversion Spectroscopy) analysis.
@@ -436,6 +511,9 @@ class FLUPSAnalyzer(QMainWindow):
         self.btn_auto_chirp.clicked.connect(self.auto_fit_chirp)
         self.btn_auto_chirp.setObjectName("BtnGreen") # Para que destaque
         self.btn_auto_chirp.setEnabled(False)
+        self.btn_manual_chirp = QPushButton("Manual / Load Chirp")
+        self.btn_manual_chirp.clicked.connect(self.apply_manual_chirp)
+        self.btn_manual_chirp.setEnabled(False)
         self.btn_auto_chirp.setToolTip("Automatically detect and correct t0 dispersion")
         
         self.btn_show_corr = QPushButton("Show Corrected Map")
@@ -589,6 +667,7 @@ class FLUPSAnalyzer(QMainWindow):
         h_model.addWidget(self.combo_model)
         v_chirp.addLayout(h_model)
         v_chirp.addWidget(self.btn_auto_chirp)
+        v_chirp.addWidget(self.btn_manual_chirp)
         v_chirp.addWidget(self.btn_show_corr)
         self.left_layout.addWidget(gb_chirp)
         
@@ -906,6 +985,16 @@ class FLUPSAnalyzer(QMainWindow):
             self.WL, self.TD, self.data = wl, td, data
             self.file_path = file_path
 
+            
+            # ---  RESETEAR EL ESTADO DE AJUSTES ANTERIORES ---
+            self.result_fit = None
+            self.data_corrected = None
+            self.showing_corrected = False
+            self.fit_line_artist = None
+            self.clicked_points = []
+            self.btn_show_corr.setEnabled(False)
+            self.btn_show_corr.setText("Show Corrected Map")
+            
             # Save the CSV path and base directory
             self.csv_path = file_path
             self.base_dir = os.path.dirname(file_path)
@@ -915,6 +1004,7 @@ class FLUPSAnalyzer(QMainWindow):
             self.btn_select.setEnabled(True)
             self.btn_fit.setEnabled(True)
             self.btn_auto_chirp.setEnabled(True)
+            self.btn_manual_chirp.setEnabled(True)
             
             # Update sliders
             nwl = len(wl)
@@ -1098,7 +1188,37 @@ class FLUPSAnalyzer(QMainWindow):
         # Connect events
         if self.cid_click is None:
             self.cid_click = self.canvas.mpl_connect("button_press_event", self.on_click_map)
-
+        if getattr(self, 'cid_move', None) is None:
+            self.cid_move = self.canvas.mpl_connect("motion_notify_event", self.on_move_map)
+       
+        # ---  REDIBUJAR LA LÍNEA DEL FIT AUTOMÁTICAMENTE ---
+        # Solo dibujamos la línea roja si tenemos un fit calculado y estamos viendo el mapa original
+        showing_corrected = getattr(self, "showing_corrected", False)
+        if not showing_corrected and getattr(self, 'result_fit', None) is not None:
+            fit_x = self.result_fit.get('fit_x')
+            fit_y = self.result_fit.get('fit_y')
+            if fit_x is not None and fit_y is not None:
+                # Recuperar el nombre del método para la leyenda
+                metodo = self.result_fit.get('method', 't₀ fit')
+                
+                # Borrar la línea anterior por si acaso quedó algún rastro en memoria
+                if getattr(self, 'fit_line_artist', None) is not None:
+                    try: self.fit_line_artist.remove()
+                    except: pass
+                    
+                # --- SOLUCIÓN ELEGANTE (Sin errores de Linter) ---
+                # 1. Guardamos el encuadre actual del mapa
+                current_xlim = self.ax_map.get_xlim()
+                
+                # 2. Dibujamos la línea roja
+                self.fit_line_artist, = self.ax_map.plot(fit_x, fit_y, 'r-', lw=2, label=f"Fit: {metodo}")
+                self.ax_map.legend()
+                
+                # 3. Volvemos a aplicar el encuadre exacto que guardamos
+                self.ax_map.set_xlim(current_xlim)
+                # -------------------------------------------------
+        # ---------------------------------------------------------
+                    
         # 4. Trigger the first full draw (Generates bg_cache)
         self.canvas.draw()
 
@@ -1455,7 +1575,88 @@ class FLUPSAnalyzer(QMainWindow):
                 
         except Exception as e:
             QMessageBox.critical(self, "Auto-Chirp Error", str(e))
-
+            
+    def apply_manual_chirp(self):
+        """Aplica la corrección de dispersión t0 a partir de parámetros introducidos manualmente o de archivo."""
+        if self.data is None: 
+            return
+            
+        dlg = ManualChirpDialog(self)
+        if dlg.exec_() == QDialog.Accepted:
+            mode, params = dlg.get_data()
+            
+            if mode is None or params is None:
+                QMessageBox.warning(self, "Error", "Invalid parameters. Check comma separation.")
+                return
+            
+            # Validación de tamaño
+            if mode == 'nonlinear' and len(params) != 4:
+                QMessageBox.warning(self, "Error", "Nonlinear model requires exactly 4 parameters (a, b, c, d).")
+                return
+            if mode == 'poly' and len(params) != 5:
+                QMessageBox.warning(self, "Error", "Polynomial model requires exactly 5 parameters (c4, c3, c2, c1, c0).")
+                return
+            
+            # Importar los modelos del motor analítico
+            from core_analysis import apply_t0_correction_nonlinear, apply_t0_correction_poly, t0_model
+            
+            try:
+                # Si estamos en modo TAS, recalcular la matriz base primero (resta de solvente)
+                if hasattr(self, "is_TAS_mode") and self.is_TAS_mode:
+                    self.update_am_sf()
+                
+                target_data = self.data
+                    
+                # Aplicar la corrección
+                if mode == 'nonlinear':
+                    corrected, t0_lambda = apply_t0_correction_nonlinear(params, self.WL, self.TD, target_data)
+                    fit_x = np.linspace(np.min(self.WL), np.max(self.WL), 400)
+                    fit_y = t0_model(fit_x, *params)
+                else:
+                    corrected, t0_lambda = apply_t0_correction_poly(params, self.WL, self.TD, target_data)
+                    fit_x = np.linspace(np.min(self.WL), np.max(self.WL), 400)
+                    fit_y = np.polyval(params, fit_x)
+                    
+                # Guardar el resultado en la app
+                self.result_fit = {
+                    'method': mode + " (manual)",
+                    'popt': params,
+                    'fit_x': fit_x,
+                    'fit_y': fit_y,
+                    'corrected': corrected,
+                    't0_lambda': t0_lambda
+                }
+                self.data_corrected = corrected
+                
+                # --- SOLUCIÓN DEL PLOT ---
+                # 1. Asegurarnos de que estamos viendo el mapa ORIGINAL (base),
+                # ya que sobre el corregido la línea roja no tiene sentido visual.
+                if getattr(self, "showing_corrected", False):
+                    self.toggle_corrected_map() # Esto llama a plot_map() y nos devuelve al original
+                else:
+                    self.plot_map() # Forzamos un redibujado limpio del mapa original
+                
+                # 2. Dibujar la línea de la corrección manual en rojo DESPUÉS de dibujar el mapa
+                if getattr(self, 'fit_line_artist', None) is not None:
+                    try: self.fit_line_artist.remove()
+                    except: pass
+                    
+                self.fit_line_artist, = self.ax_map.plot(fit_x, fit_y, 'r-', lw=2, label="Manual t₀")
+                self.ax_map.legend()
+                
+                cur_WL = getattr(self, "WL_visible", self.WL)
+                if cur_WL is not None and len(cur_WL) > 0:
+                    self.ax_map.set_xlim(np.min(cur_WL), np.max(cur_WL))
+                    
+                self.canvas.draw_idle()
+                
+                self.btn_show_corr.setEnabled(True)
+                    
+                QMessageBox.information(self, "Success", f"Manual chirp correction applied successfully.\nMode: {mode}")
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error applying manual chirp", str(e))
+                
     def toggle_corrected_map(self):
         """Toggles between the original and corrected map using optimized rendering."""
         
@@ -1859,6 +2060,17 @@ class TASAnalyzer(FLUPSAnalyzer):
         self.slider_min.valueChanged.connect(self.update_wl_range)
         self.slider_max.valueChanged.connect(self.update_wl_range)
         
+        # --- RESETEAR EL ESTADO DE AJUSTES ANTERIORES ---
+        self.result_fit = None
+        self.data_corrected = None
+        self.showing_corrected = False
+        self.fit_line_artist = None
+        self.clicked_points = []
+        if hasattr(self, 'btn_show_corr'):
+            self.btn_show_corr.setEnabled(False)
+            self.btn_show_corr.setText("Show Corrected Map")
+        # -------------------------------------------------------
+        
         # --- Calculate initial map ---
         self.label_status.setText(" TAS data loaded")
         self.update_am_sf()
@@ -1875,6 +2087,8 @@ class TASAnalyzer(FLUPSAnalyzer):
             self.btn_fit.setEnabled(True)
         if hasattr(self, "btn_auto_chirp"):
             self.btn_auto_chirp.setEnabled(True)
+        if hasattr(self, "btn_manual_chirp"):
+            self.btn_manual_chirp.setEnabled(True)
         
         #  Display only the loaded file name
         file_name = os.path.basename(file_path_medida)
