@@ -4237,6 +4237,23 @@ class GlobalFitPanel(QDialog):
             }
             np.save(os.path.join(outdir, "GFitResults.npy"), results_dict)
             
+            # ---  GUARDAR LAS 3 MATRICES 2D (Experimental, Fit y Residuales) ---
+            # Crear la cabecera común con los delays (TD)
+            header_line = "Wavelength\t" + "\t".join([f"{t:.6g}" for t in TD])
+            
+            # 1. Matriz Experimental (Pre-procesada)
+            exp_export = np.column_stack((WL, self.data_c))
+            np.savetxt(os.path.join(outdir, "Corrected_data.txt"), exp_export, fmt='%.6e', delimiter='\t', header=header_line, comments='')
+
+            # 2. Matriz del Fit
+            fit_export = np.column_stack((WL, self.fit_fitres))
+            np.savetxt(os.path.join(outdir, "Fitted_data.txt"), fit_export, fmt='%.6e', delimiter='\t', header=header_line, comments='')
+            
+            # 3. Matriz de Residuales
+            resid_export = np.column_stack((WL, self.fit_resid))
+            np.savetxt(os.path.join(outdir, "Residuals.txt"), resid_export, fmt='%.6e', delimiter='\t', header=header_line, comments='')
+            # ---------------------------------------------------------------------------
+            
             # 2. Ejes
             np.savetxt(os.path.join(outdir, "WL.txt"), WL, fmt='%.6f', header='Wavelength (nm)', comments='')
             np.savetxt(os.path.join(outdir, "TD.txt"), TD, fmt='%.6f', header='Delay (ps)', comments='')
