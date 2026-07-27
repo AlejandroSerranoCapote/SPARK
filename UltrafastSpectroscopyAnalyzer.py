@@ -1651,10 +1651,29 @@ class FLUPSAnalyzer(QMainWindow):
                 self.canvas.draw_idle()
                 
                 self.btn_show_corr.setEnabled(True)
+                
+                # --- NUEVO: Crear la carpeta _Results y guardar los datos corregidos ---
+                base_dir = os.path.dirname(self.file_path)
+                base_name = os.path.splitext(os.path.basename(self.file_path))[0]
+                results_dir = os.path.join(base_dir, f"{base_name}_Results")
+                os.makedirs(results_dir, exist_ok=True)
+                
+                # Empaquetar los datos usando las claves estándar del software ('data_c', 'TD', 'WL')
+                data_to_save = {
+                    'data_c': corrected,
+                    'TD': self.TD,
+                    'WL': self.WL
+                }
+                
+                # Guardamos como _treated_data.npy para la transición directa al Global Fit
+                save_path = os.path.join(results_dir, f"{base_name}_treated_data.npy")
+                np.save(save_path, data_to_save)
+                # ------------------------------------------------------------------------
                     
-                QMessageBox.information(self, "Success", f"Manual chirp correction applied successfully.\nMode: {mode}")
+                QMessageBox.information(self, "Success", f"Manual chirp correction applied successfully and saved in:\n{results_dir}\nMode: {mode}")
                 
             except Exception as e:
+                
                 QMessageBox.critical(self, "Error applying manual chirp", str(e))
                 
     def toggle_corrected_map(self):
