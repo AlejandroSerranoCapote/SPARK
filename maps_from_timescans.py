@@ -11,89 +11,63 @@ from PyQt5.QtCore import Qt
 # GUI Styling Constants
 # ---------------------------------------------------------------------
 
-BUTTON_STYLE = """
-    QPushButton {
-        background-color: #6CB66C;   /* Corporate green */
-        color: white;                /* White text for good contrast */
-        border: 1px solid #549A54;   /* Slightly darker green border */
-        border-radius: 4px;          /* Smooth rounded corners */
-        padding: 6px 12px;           
-        font-weight: bold;
-        font-family: "Segoe UI";
+MODULES_STYLESHEET = """
+    QMainWindow, QWidget {
+        background-color: #F8F9FA; 
+        color: #222222;            
+        font-family: "Segoe UI", Arial, sans-serif;
         font-size: 9pt;              
     }
-    QPushButton:hover {
-        background-color: #5CA55C;   /* Darkens slightly on hover */
-        color: white;
-        border: 1px solid #468446;   /* Border darkens as well */
-    }
-    QPushButton:pressed {
-        background-color: #4A8C4A;   /* Dark green on click */
-        border: 1px solid #4A8C4A;
-        color: white;
-        padding-top: 7px;            /* Sink-in effect when pressed */
-        padding-left: 13px;
-    }
-    QPushButton:disabled {
-        background-color: #A0C8A0;   /* Pale, "turned off" green for inactive buttons */
-        border: 1px solid #A0C8A0;
-        color: #F0F0F0;              /* Slightly faded text */
-    }
-"""
-
-DARK_THEME_STYLE = """
-    QDialog, QWidget {
-        color: #222222;            /* Dark text */
-        font-family: "Segoe UI";
-        font-size: 8pt;              
-    }
     QGroupBox {
-        border: 1px solid #C0C0C0; /* Soft gray border instead of cyan */
-        border-radius: 5px;
-        margin-top: 8px;             
-        padding-top: 10px;
-        font-weight: bold;
-        color: #000000;            
+        border: none;
+        border-top: 1px solid #D0D0D0;
+        margin-top: 18px;             
+        padding-top: 15px;
     }
     QGroupBox::title {
         subcontrol-origin: margin;
         subcontrol-position: top left;
-        padding: 0 3px;
+        padding: 0px 5px 0px 0px;
+        font-weight: bold;
+        font-size: 10pt;
+        color: #3C5488; 
     }
     QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit {
-        background-color: #FFFFFF; /* White background */
-        border: 1px solid #C0C0C0;
+        background-color: #FFFFFF; 
+        border: 1px solid #CED4DA;
         border-radius: 4px;
-        color: #000000;            /* Black text */
-        padding: 2px;                
-        min-height: 18px;            
+        color: #212529;            
+        padding: 4px 8px;                
+        min-height: 22px; 
     }
     QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QLineEdit:focus {
-        border: 1px solid #0078D7; /* Windows blue border on focus */
+        border: 1px solid #80BDFF; 
     }
-    QComboBox QAbstractItemView {
+    QPushButton {
+        background-color: #E2E8F0;
+        border: 1px solid #CBD5E1;
+        border-radius: 4px;
+        padding: 6px 12px;
+        color: #0F172A;
+        font-weight: bold;
+    }
+    QPushButton:hover {
+        background-color: #CBD5E1;
+        border: 1px solid #94A3B8; 
+    }
+    QPushButton#BtnGreen {
+        background-color: #10B981; 
+        border: 1px solid #059669; 
+        color: white; 
+    }
+    QPushButton#BtnGreen:hover {
+        background-color: #059669; 
+    }
+    QListWidget {
         background-color: #FFFFFF;
-        color: #000000;
-        selection-background-color: #E5F1FB; /* Light blue background on hover */
-        selection-color: #000000;
-        border: 1px solid #C0C0C0;
-    }
-    QLabel { color: #222222; }
-    QCheckBox { color: #222222; }
-    
-    QProgressBar {
-        border: 1px solid #C0C0C0;
-        border-radius: 5px;
-        text-align: center;
-        background-color: #FFFFFF; /* White progress bar background */
-        color: #222222;
-        max-height: 15px;            
-    }
-    QProgressBar::chunk {
-        background-color: #6CB66C; /* Filling chunk is corporate green */
-        border-radius: 3px;
-        width: 10px;
-        margin: 0.5px;
+        border: 1px solid #CED4DA;
+        border-radius: 4px;
+        padding: 5px;
     }
 """
 
@@ -205,103 +179,118 @@ class AppWindow(QMainWindow):
         self.processor = XFELProcessor()
         self.file_list = []
         self.initUI()
-        self.setStyleSheet(DARK_THEME_STYLE)
 
     def initUI(self):
-        """Initializes the layout, widgets, and styles of the main GUI."""
-        self.setWindowTitle("2D Maps from timescans builder")
-        self.setGeometry(100, 100, 700, 850)
-        
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        layout = QVBoxLayout(main_widget)
-
-        # --- CONFIGURATION SECTION ---
-        config_group = QGroupBox("MAPPING AND SCALE CONFIGURATION (In .npy)")
-        grid = QGridLayout()
-        
-        self.key_time = QLineEdit("Delay_fs_TT")
-        self.key_es = QLineEdit("ES")
-        self.key_gs = QLineEdit("GS")
-        self.key_sig = QLineEdit("")
-        self.key_sig.setPlaceholderText("Optional: Diff, Intensity...") 
-        self.time_scale = QLineEdit("1.0") 
-        
-        grid.addWidget(QLabel("Time Key:"), 0, 0)
-        grid.addWidget(self.key_time, 0, 1)
-        grid.addWidget(QLabel("Time Scale Factor:"), 0, 2)
-        grid.addWidget(self.time_scale, 0, 3)
-        
-        grid.addWidget(QLabel("Excited State Key (ES):"), 1, 0)
-        grid.addWidget(self.key_es, 1, 1)
-        grid.addWidget(QLabel("Ground State Key (GS):"), 1, 2)
-        grid.addWidget(self.key_gs, 1, 3)
-        
-        grid.addWidget(QLabel("<b>Direct Signal Key:</b>"), 2, 0)
-        grid.addWidget(self.key_sig, 2, 1, 1, 3)
-        
-        config_group.setLayout(grid)
-        layout.addWidget(config_group)
-
-        # --- ENERGIES INPUT SECTION ---
-        layout.addWidget(QLabel("<b>ENERGY (eV) / WAVELENGTH (nm) VECTOR:</b>"))
-        e_lay = QHBoxLayout()
-        self.e_input = QLineEdit()
-        
-        self.e_input.setPlaceholderText("E.g.: 2470.5, 2475.5, 2480.0 ...") 
-        
-        self.e_input.textChanged.connect(self.validate_counts)
-        e_lay.addWidget(self.e_input)
-        
-        btn_e = QPushButton("IMPORT TXT")
-        btn_e.setStyleSheet(BUTTON_STYLE)
-        btn_e.clicked.connect(self.import_energies)
-        e_lay.addWidget(btn_e)
-        layout.addLayout(e_lay)
-
-        # --- FILE SELECTION SECTION ---
-        layout.addWidget(QLabel("<b>KINETIC DATA FILES (.npy):</b>"))
-        f_lay = QHBoxLayout()
-        
-        btn_f = QPushButton("SELECT .NPY FILES")
-        btn_f.setStyleSheet(BUTTON_STYLE)
-        btn_f.clicked.connect(self.load_files)
-        
-        btn_check = QPushButton("CHECK UNITS")
-        btn_check.clicked.connect(self.check_units)
-        
-        f_lay.addWidget(btn_f)
-        f_lay.addWidget(btn_check)
-        layout.addLayout(f_lay)
-        
-        self.list_w = QListWidget()
-        layout.addWidget(self.list_w)
-
-        # Status label to show matching count of energies vs files
-        self.label_status = QLabel("Ready")
-        self.label_status.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.label_status)
-
-        # --- ACTIONS SECTION ---
-        act_lay = QHBoxLayout()
-        
-        self.btn_run = QPushButton("GENERATE MAP")
-        self.btn_run.setStyleSheet(BUTTON_STYLE)
-        self.btn_run.clicked.connect(self.generate)
-        
-        self.btn_save = QPushButton("SAVE MAP")
-        self.btn_save.setStyleSheet(BUTTON_STYLE)
-        self.btn_save.setEnabled(False)
-        self.btn_save.clicked.connect(self.save)
-
-        self.btn_reset = QPushButton("RESET")
-        self.btn_reset.clicked.connect(self.reset_app)
-
-        act_lay.addWidget(self.btn_run)
-        act_lay.addWidget(self.btn_save)
-        act_lay.addWidget(self.btn_reset)
-        layout.addLayout(act_lay)
-
+            """Initializes the layout, widgets, and styles of the main GUI."""
+            self.setWindowTitle("SPARK - 2D Mapper (XFEL / Timescans)")
+            self.setGeometry(100, 100, 750, 850)
+            
+            main_widget = QWidget()
+            self.setCentralWidget(main_widget)
+            
+            # Aplicamos el estilo Premium unificado
+            self.setStyleSheet(MODULES_STYLESHEET)
+            
+            layout = QVBoxLayout(main_widget)
+            layout.setContentsMargins(30, 20, 30, 30)
+            layout.setSpacing(10)
+    
+            # --- 1. CONFIGURATION SECTION ---
+            config_group = QGroupBox("1. Mapping Configuration (In .npy)")
+            grid = QGridLayout(config_group)
+            grid.setSpacing(10)
+            
+            self.key_time = QLineEdit("Delay_fs_TT")
+            self.key_es = QLineEdit("ES")
+            self.key_gs = QLineEdit("GS")
+            self.key_sig = QLineEdit("")
+            self.key_sig.setPlaceholderText("Optional: Diff, Intensity...") 
+            self.time_scale = QLineEdit("1.0") 
+            
+            grid.addWidget(QLabel("Time Key:"), 0, 0)
+            grid.addWidget(self.key_time, 0, 1)
+            grid.addWidget(QLabel("Time Scale Factor:"), 0, 2)
+            grid.addWidget(self.time_scale, 0, 3)
+            
+            grid.addWidget(QLabel("Excited State Key (ES):"), 1, 0)
+            grid.addWidget(self.key_es, 1, 1)
+            grid.addWidget(QLabel("Ground State Key (GS):"), 1, 2)
+            grid.addWidget(self.key_gs, 1, 3)
+            
+            grid.addWidget(QLabel("Direct Signal Key:"), 2, 0)
+            grid.addWidget(self.key_sig, 2, 1, 1, 3)
+            
+            layout.addWidget(config_group)
+    
+            # --- 2. ENERGIES INPUT SECTION ---
+            energy_group = QGroupBox("2. Energy (eV) / Wavelength (nm) Vector")
+            e_lay = QHBoxLayout(energy_group)
+            e_lay.setSpacing(10)
+            
+            self.e_input = QLineEdit()
+            self.e_input.setPlaceholderText("E.g.: 2470.5, 2475.5, 2480.0 ...") 
+            self.e_input.textChanged.connect(self.validate_counts)
+            e_lay.addWidget(self.e_input)
+            
+            btn_e = QPushButton("Import TXT")
+            btn_e.clicked.connect(self.import_energies)
+            e_lay.addWidget(btn_e)
+            
+            layout.addWidget(energy_group)
+    
+            # --- 3. FILE SELECTION SECTION ---
+            files_group = QGroupBox("3. Kinetic Data Files (.npy)")
+            f_lay = QVBoxLayout(files_group)
+            f_lay.setSpacing(10)
+            
+            h_btn_files = QHBoxLayout()
+            btn_f = QPushButton("Select .npy Files")
+            btn_f.clicked.connect(self.load_files)
+            
+            btn_check = QPushButton("Check Units")
+            btn_check.clicked.connect(self.check_units)
+            
+            h_btn_files.addWidget(btn_f)
+            h_btn_files.addWidget(btn_check)
+            h_btn_files.addStretch()
+            f_lay.addLayout(h_btn_files)
+            
+            self.list_w = QListWidget()
+            f_lay.addWidget(self.list_w)
+    
+            # Status label
+            self.label_status = QLabel("Ready")
+            self.label_status.setAlignment(Qt.AlignCenter)
+            self.label_status.setStyleSheet("color: #6C757D; font-weight: bold; font-size: 10pt;")
+            f_lay.addWidget(self.label_status)
+            
+            layout.addWidget(files_group)
+            
+            layout.addStretch()
+    
+            # --- 4. ACTIONS SECTION ---
+            act_lay = QHBoxLayout()
+            act_lay.setSpacing(15)
+            
+            self.btn_run = QPushButton("GENERATE MAP")
+            self.btn_run.setObjectName("BtnGreen") # Forzamos el color verde de acción principal
+            self.btn_run.setFixedHeight(40)
+            self.btn_run.clicked.connect(self.generate)
+            
+            self.btn_save = QPushButton("SAVE MAP")
+            self.btn_save.setFixedHeight(40)
+            self.btn_save.setEnabled(False)
+            self.btn_save.clicked.connect(self.save)
+    
+            self.btn_reset = QPushButton("RESET")
+            self.btn_reset.setFixedHeight(40)
+            self.btn_reset.clicked.connect(self.reset_app)
+    
+            act_lay.addWidget(self.btn_run, stretch=2) # Le damos más peso visual al botón principal
+            act_lay.addWidget(self.btn_save, stretch=1)
+            act_lay.addWidget(self.btn_reset, stretch=1)
+            
+            layout.addLayout(act_lay)
     def check_units(self):
         """Runs the unit heuristic on the first loaded file and displays a message box."""
         if not self.file_list:
@@ -329,10 +318,10 @@ class AppWindow(QMainWindow):
         
         if nf > 0 and nf == ne:
             self.label_status.setText(f"MATCH: {nf} Files")
-            self.label_status.setStyleSheet("color: #00ff00; font-weight: bold;")
+            self.label_status.setStyleSheet("color: #10B981; font-weight: bold; font-size: 10pt;") # Premium Green
         else:
             self.label_status.setText(f"MISMATCH: {nf} Files / {ne} Energies")
-            self.label_status.setStyleSheet("color: #ff4444; font-weight: bold;")
+            self.label_status.setStyleSheet("color: #EF4444; font-weight: bold; font-size: 10pt;") # Premium Red
 
     def import_energies(self):
         """Opens a file dialog to read an energy vector from a text/csv file and populates the line edit."""

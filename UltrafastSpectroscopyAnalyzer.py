@@ -192,7 +192,7 @@ class MainApp(QMainWindow):
     """Main Window (LAUNCHER DASHBOARD)"""
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Ultrafast Spectroscopy Analyzer - Launcher")
+        self.setWindowTitle("SPARK")
         self.setMinimumSize(900, 520) 
         self.setStyleSheet(STYLESHEET) 
         self.github_url = "https://github.com/AlejandroSerranoCapote/Ultrafast-Spectroscopy-Analyzer"
@@ -217,10 +217,18 @@ class MainApp(QMainWindow):
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(35, 45, 35, 30)
 
-        title = QLabel("ULTRAFAST\nSPECTROSCOPY\nANALYZER")
+        title_text = (
+            "<span style='color: #FFB300; font-weight: bold;'>S</span>pectroscopy<br>"
+            "<span style='color: #FFB300; font-weight: bold;'>P</span>ump-probe<br>"
+            "<span style='color: #FFB300; font-weight: bold;'>A</span>nalysis and<br>"
+            "<span style='color: #FFB300; font-weight: bold;'>R</span>esearch<br>"
+            "<span style='color: #FFB300; font-weight: bold;'>K</span>it"
+        )
+        
+        title = QLabel(title_text)
         title.setObjectName("LeftTitle")
         left_layout.addWidget(title)
-        
+
         left_layout.addSpacing(15)
 
         sub = QLabel("Data processing\nsuite for time-resolved\nspectroscopy & global fitting.")
@@ -457,7 +465,7 @@ class FLUPSAnalyzer(QMainWindow):
     def __init__(self):
         """Initializes the FLUPS Analyzer UI, layouts, and state variables."""
         super().__init__()
-        self.setWindowTitle("FLUPS Analyzer")
+        self.setWindowTitle("SPARK - FLUPS Analyzer")
         
         screen = QApplication.primaryScreen()
         screen_geom = screen.availableGeometry() # Usable size (excluding taskbar)
@@ -1739,7 +1747,7 @@ class TASAnalyzer(FLUPSAnalyzer):
     def __init__(self):
         """Initializes the TAS Analyzer UI, extending and modifying the base FLUPS UI."""
         super().__init__()
-        self.setWindowTitle("TAS Analyzer")
+        self.setWindowTitle("SPARK - TAS Analyzer")
         self.label_status.setText("No file loaded")
         
         # --- Data State ---

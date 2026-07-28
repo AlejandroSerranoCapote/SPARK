@@ -1618,7 +1618,7 @@ class GlobalFitPanel(QDialog):
     def __init__(self, parent=None):
         """Initializes the Global Fit Panel UI, variables, and layouts."""
         super().__init__(parent)
-        self.setWindowTitle("Global Fit Analysis")
+        self.setWindowTitle("SPARK - Global Fit Analysis")
         self.setWindowFlags(self.windowFlags() | Qt.WindowMinMaxButtonsHint)
         
         # --- AUTO-AJUSTE Y CENTRADO INTELIGENTE ---
