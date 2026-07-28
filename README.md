@@ -19,7 +19,8 @@
 
 <br/>
 
-<img width="897" height="553" alt="Main Menu" src="https://github.com/user-attachments/assets/7ce31ef0-843c-4bfa-91c5-d9a5379f7180"/>
+<img width="896" height="557" alt="image" src="https://github.com/user-attachments/assets/1fda0ce0-ae71-4a0d-b530-4358b772608d" />
+
 
 </div>
 
