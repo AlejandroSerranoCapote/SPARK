@@ -1,14 +1,21 @@
+
+
 <div align="center">
-
-# Ultrafast Spectroscopy Analyzer
-
-**A comprehensive, open-source GUI suite for the processing and global target analysis of ultrafast spectroscopy data.**
-
+            
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyQt5](https://img.shields.io/badge/GUI-PyQt5-41CD52?logo=qt&logoColor=white)](https://pypi.org/project/PyQt5/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20|%20Linux-lightgrey)](#)
 [![Docs](https://img.shields.io/badge/Docs-ReadTheDocs-blue)](https://ultrafast-spectroscopy-analyzer.readthedocs.io/en/latest/index.html)
+
+# Spectroscopy Pump-probe Analysis and Research Kit (SPARK)
+
+<img width="2049" height="1000" alt="CabeceraGithub" src="https://github.com/user-attachments/assets/56e8a8fb-b4f4-4760-9299-17787bd8baf3" />
+
+
+
+**A comprehensive, open-source GUI suite for the processing and global target analysis of ultrafast spectroscopy data.**
+
 
 <br/>
 
