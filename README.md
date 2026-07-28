@@ -19,7 +19,7 @@
 
 <br/>
 
-<img width="896" height="557" alt="image" src="https://github.com/user-attachments/assets/1fda0ce0-ae71-4a0d-b530-4358b772608d" />
+
 
 
 </div>
@@ -47,6 +47,8 @@
 **Ultrafast Spectroscopy Analyzer** is a full-featured desktop application for the processing, visualization, and global target analysis of ultrafast spectroscopy data. It combines a rigorous mathematical engine — built around Variable Projection (VarPro), Bateman-equation population dynamics, and profile-likelihood confidence intervals — with an interactive graphical interface designed to take raw experimental data all the way to publication-quality figures without requiring any scripting.
 
 The core fitting engine implements a **true VarPro algorithm**: at each step of the non-linear optimizer, the spectral amplitudes are eliminated analytically via linear least squares, so the optimizer only ever searches over the physically meaningful non-linear parameters ($w$, $t_0$, and the lifetimes $\tau_i$). This dramatically reduces the dimensionality of the non-linear search space and improves both convergence speed and robustness compared to naive full-parameter optimization.
+
+<img width="896" height="557" alt="image" src="https://github.com/user-attachments/assets/1fda0ce0-ae71-4a0d-b530-4358b772608d" />
 
 ---
 
