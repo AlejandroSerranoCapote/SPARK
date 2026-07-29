@@ -528,7 +528,7 @@ class TraceExplorerWindow(QDialog):
         if np.any(mask_pos_exp):
             ax2.plot(td[mask_pos_exp], y_exp[mask_pos_exp], 'bo', markersize=4, alpha=0.6)
             ax2.plot(td_smooth[mask_pos_smooth], y_fit_smooth[mask_pos_smooth], 'r-', linewidth=2)
-            ax2.set_xscale('log')
+            ax2.set_xscale('symlog', linthresh = 1.0)
             ax2.set_xlabel("Time / ps (log scale)")
             ax2.grid(True, which="both", ls="-", alpha=0.3)
 
@@ -3880,9 +3880,34 @@ class GlobalFitPanel(QDialog):
                     
             btn_reset.clicked.connect(update_table_in_place)
             
+            # --- Botón para cargar los valores del último Fit ---
+            btn_load_fit = QPushButton("Use Last Fit")
+            btn_load_fit.setStyleSheet("background-color: #E67E22; color: white;") # Color naranja distintivo
+            
+            def load_fit_in_place():
+                # Comprobamos si hay un fit previo en memoria
+                if getattr(self, 'fit_x', None) is None:
+                    QMessageBox.information(dlg, "No Fit Data", "No previous fit results available to load.")
+                    return
+                
+                self.save_state_to_history() # Para poder hacer Ctrl+Z si nos arrepentimos
+                
+                # Copiamos de forma segura (por si cambió el número de lambdas al recortar los datos)
+                safe_len = min(len(self.ini), len(self.fit_x))
+                self.ini[:safe_len] = self.fit_x[:safe_len].copy()
+                
+                # Actualizamos la tabla visualmente solo en la columna de 'Value'
+                for i in range(safe_len):
+                    table.item(i, 1).setText(f"{self.ini[i]:.6g}")
+                    
+            btn_load_fit.clicked.connect(load_fit_in_place)
+            # -------------------------------------------------------------
+            
             btn_ok = QPushButton("Save & Close")
             btn_ok.clicked.connect(dlg.accept)
+            
             btns.addWidget(btn_reset)
+            btns.addWidget(btn_load_fit) 
             btns.addWidget(btn_ok)
             v.addLayout(btns)
             
@@ -3898,7 +3923,7 @@ class GlobalFitPanel(QDialog):
                         self.lims[i] = float(table.item(i, 3).text())
                         self.is_fixed[i] = (table.item(i, 4).checkState() == Qt.Checked)
                     except ValueError:
-                        pass # Ignora basura silenciosamente y mantiene el valor anterior                
+                        pass # Ignora basura silenciosamente y mantiene el valor anterior
 
     def _run_least_squares_with_progress(self):
         """Configura y lanza el ajuste en un hilo secundario (QThread)."""
