@@ -523,14 +523,11 @@ class TraceExplorerWindow(QDialog):
         ax1.grid(True, alpha=0.3)
 
         # Plot Semi-Log
-        mask_pos_exp = td > 0
-        mask_pos_smooth = td_smooth > 0
-        if np.any(mask_pos_exp):
-            ax2.plot(td[mask_pos_exp], y_exp[mask_pos_exp], 'bo', markersize=4, alpha=0.6)
-            ax2.plot(td_smooth[mask_pos_smooth], y_fit_smooth[mask_pos_smooth], 'r-', linewidth=2)
-            ax2.set_xscale('symlog', linthresh = 1.0)
-            ax2.set_xlabel("Time / ps (log scale)")
-            ax2.grid(True, which="both", ls="-", alpha=0.3)
+        ax2.plot(td, y_exp, 'bo', markersize=4, alpha=0.6)
+        ax2.plot(td_smooth, y_fit_smooth, 'r-', linewidth=2)
+        ax2.set_xscale('symlog', linthresh=1.0)
+        ax2.set_xlabel("Time / ps (symlog scale)")
+        ax2.grid(True, which="both", ls="-", alpha=0.3)
 
         self.fig.tight_layout()
         self.canvas.draw()
