@@ -369,12 +369,12 @@ For bug reports or feature requests, please open a [GitHub Issue](https://github
 If you use this software in published work, please cite it as:
 
 ```bibtex
-@software{SerranoCapote_USA_2025,
+@software{SerranoCapote_SPARK_2025,
   author  = {Serrano Capote, Alejandro},
-  title   = {{Ultrafast Spectroscopy Analyzer}},
+  title   = {{SPARK}},
   year    = {2025},
   version = {1.4},
-  url     = {https://github.com/AlejandroSerranoCapote/Ultrafast-Spectroscopy-Analyzer},
+  url     = {https://github.com/AlejandroSerranoCapote/SPARK},
   license = {GPL-3.0}
 }
 ```
