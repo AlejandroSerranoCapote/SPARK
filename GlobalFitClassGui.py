@@ -4984,11 +4984,14 @@ class GlobalFitPanel(QDialog):
                     # PÁGINA 5 — SVD (SINGULAR VALUE DECOMPOSITION)
                     # ==========================================================
                     # Nos aseguramos de calcular el SVD si el usuario no hizo clic en el botón antes
-                    if not hasattr(self, 'svd_s') or self.svd_s is None:
+                    if (not hasattr(self, 'svd_s') or self.svd_s is None or 
+                        self.svd_U.shape[0] != len(wl) or self.svd_V.shape[0] != len(td)):
+                        
                         U_svd, s_svd, Vh_svd = np.linalg.svd(self.data_c, full_matrices=False)
                         self.svd_U = U_svd
                         self.svd_s = s_svd
                         self.svd_V = Vh_svd.T
+        
 
                     fig5 = Figure(figsize=(8.27, 11.69))
                     FigureCanvasAgg(fig5)
