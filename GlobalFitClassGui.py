@@ -2219,6 +2219,8 @@ class GlobalFitPanel(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "Load Kinetic Project", "", "Project Files (*.proj)")
         if not path: return
 
+        self.base_dir = os.path.dirname(path)
+        
         try:
             with open(path, 'rb') as f:
                 proj_data = pickle.load(f)
