@@ -7,8 +7,9 @@ from PyQt5.QtWidgets import (
     QHeaderView, QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, 
     QFormLayout, QWidget, QTabWidget, QApplication, QInputDialog,
     QCheckBox, QLineEdit, QListView,QFileDialog,QScrollArea,QShortcut,
-    QGraphicsOpacityEffect
+    QGraphicsOpacityEffect,QSplitter
 )
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QThread, pyqtSignal,QEasingCurve
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor,QKeySequence
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -1690,7 +1691,7 @@ class GlobalFitPanel(QDialog):
         
         # --- A. Left Panel (Workflow Tabs) ---
         self.sidebar_tabs = QTabWidget()
-        self.sidebar_tabs.setFixedWidth(370) # Un pelín más ancho para que respiren los botones
+        self.sidebar_tabs.setMinimumWidth(320)
 
         self.tab_data = QWidget()
         self.tab_model = QWidget()
@@ -1700,16 +1701,21 @@ class GlobalFitPanel(QDialog):
 
         self._init_sidebar_ui() 
         
-        main_layout.addWidget(self.sidebar_tabs)
-    
         # --- B. Right Panel (Plots) ---
         self.right_area = QWidget()
         self.right_layout = QVBoxLayout(self.right_area)
-        
         self._init_plots_ui() 
         
-        main_layout.addWidget(self.right_area)
-    
+        # --- CREAR EL SPLITTER (Barra arrastrable) ---
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self.sidebar_tabs)
+        splitter.addWidget(self.right_area)
+        
+        # Le damos un tamaño inicial proporcional (ej: 370px izq, 830px derecha)
+        splitter.setSizes([370, 830]) 
+        
+        # Añadimos el splitter al layout principal
+        main_layout.addWidget(splitter)
         self.setLayout(main_layout)
         
         # --- ANIMACIONES PREMIUM (EFECTO APPLE) ---
@@ -1803,7 +1809,7 @@ class GlobalFitPanel(QDialog):
         self.btn_remove_dataset = QPushButton("Del")
         self.btn_remove_dataset.setToolTip("Remove current dataset")
         self.btn_remove_dataset.setAutoDefault(False)
-        self.btn_remove_dataset.setStyleSheet("background-color: #DC3545; color: white; font-weight: bold; max-width: 30px;")
+        self.btn_remove_dataset.setStyleSheet("background-color: #DC3545; color: white; font-weight: bold; min-width: 30px;")
         self.btn_remove_dataset.clicked.connect(self.remove_active_dataset)
         h_dataset.addWidget(self.btn_remove_dataset, stretch=1)
         v_load.addLayout(h_dataset)
@@ -1850,7 +1856,7 @@ class GlobalFitPanel(QDialog):
         form_prep.addRow("Time Range (ps):", h_time)
         
         self.spin_bin = QSpinBox()
-        self.spin_bin.setRange(1, 50)
+        self.spin_bin.setRange(1, 10000)
         self.spin_bin.setValue(1)
         self.spin_bin.editingFinished.connect(self._preview_data_processing)
         form_prep.addRow("Binning:", self.spin_bin)
@@ -2007,14 +2013,14 @@ class GlobalFitPanel(QDialog):
         
         self.btn_run = QPushButton("RUN FIT")
         self.btn_run.setStyleSheet("background-color: #10B981; border: 1px solid #059669; color: white; font-size: 10pt; font-weight: bold;")
-        self.btn_run.setFixedHeight(40)  
+        self.btn_run.setMinimumHeight(40)  
         self.btn_run.setEnabled(False)
         self.btn_run.clicked.connect(self.run_fit_pipeline) 
         h_run.addWidget(self.btn_run, stretch=3) 
         
         self.btn_abort = QPushButton("ABORT")
         self.btn_abort.setStyleSheet("background-color: #EF4444; border: 1px solid #DC2626; color: white; font-weight: bold; font-size: 10pt;")
-        self.btn_abort.setFixedHeight(40)
+        self.btn_abort.setMinimumHeight(40)
         self.btn_abort.setEnabled(False)
         self.btn_abort.clicked.connect(self.abort_fit)
         h_run.addWidget(self.btn_abort, stretch=1) 
@@ -2022,7 +2028,7 @@ class GlobalFitPanel(QDialog):
         layout_model.addLayout(h_run)
         
         self.btn_batch = QPushButton("RUN BATCH FIT (All Files)")
-        self.btn_batch.setFixedHeight(40)
+        self.btn_batch.setMinimumHeight(40)
         self.btn_batch.setEnabled(False)
         self.btn_batch.setStyleSheet("background-color: #0078D7; color: white; font-weight: bold;")
         self.btn_batch.clicked.connect(self.run_batch_pipeline)
@@ -2042,12 +2048,12 @@ class GlobalFitPanel(QDialog):
         layout_model.addStretch() 
         
         # --- Plotters Independientes ---
-        self.btn_standalone_plotter = QPushButton("Open Paper Plotter (Saved Traces)")
+        self.btn_standalone_plotter = QPushButton("Kinetics Plotter (Saved Traces)")
         self.btn_standalone_plotter.clicked.connect(self.open_standalone_plotter)
         self.btn_standalone_plotter.setStyleSheet("background-color: #3C5488; color: white; padding: 6px;")
         layout_model.addWidget(self.btn_standalone_plotter)     
         
-        self.btn_sasdas_plotter = QPushButton("Open SAS/DAS Plotter (Spectra)")
+        self.btn_sasdas_plotter = QPushButton("Spectra Plotter (Saved Traces)")
         self.btn_sasdas_plotter.clicked.connect(self.open_sasdas_plotter)
         self.btn_sasdas_plotter.setStyleSheet("background-color: #00A087; color: white; padding: 6px;")
         layout_model.addWidget(self.btn_sasdas_plotter)
@@ -3315,7 +3321,20 @@ class GlobalFitPanel(QDialog):
                 
             cmap_choice = getattr(self, 'combo_cmap', None).currentText() if hasattr(self, 'combo_cmap') else 'jet'
             
-            self.pcm_exp = ax_map.pcolormesh(Xs, Ys, self.data_c.T, shading="auto", cmap=cmap_choice, vmin=self.exp_vmin, vmax=self.exp_vmax)
+            # --- FIX INTELIGENTE: Dinámico según las dimensiones ---
+            current_shading = 'nearest' if (len(Xs) == 1 or len(Ys) == 1) else 'auto'
+            
+            map_Xs, map_Ys, map_Z = Xs.copy(), Ys.copy(), self.data_c.T.copy()
+            if len(Xs) == 1:
+                map_Xs = np.array([map_Xs[0] - 5, map_Xs[0] + 5])
+                map_Z = np.column_stack((map_Z, map_Z))
+            if len(Ys) == 1:
+                map_Ys = np.array([map_Ys[0] - 0.5, map_Ys[0] + 0.5])
+                map_Z = np.vstack((map_Z, map_Z))
+                
+            self.pcm_exp = ax_map.pcolormesh(map_Xs, map_Ys, map_Z, shading=current_shading, cmap=cmap_choice, vmin=self.exp_vmin, vmax=self.exp_vmax)
+            # ------------------------------------------------------
+            
             ax_map.set_xlabel("Wavelength (nm)")
             ax_map.set_ylabel("Delay (ps)")
             
@@ -3325,15 +3344,19 @@ class GlobalFitPanel(QDialog):
                 ax_map.set_yscale('linear')
             
             # --- INYECCIÓN DE LÍNEAS PARA EL EFECTO HOVER ---
-            self.ax_exp['line_spec'], = ax_spec.plot(Xs, self.data_c[:, 0], color='darkred', lw=1.5)
-            self.ax_exp['line_kin'], = ax_kin.plot(self.data_c[0, :], Ys, color='darkblue', lw=1.5)
+            # self.ax_exp['line_spec'], = ax_spec.plot(Xs, self.data_c[:, 0], color='darkred', lw=1.5)
+            # self.ax_exp['line_kin'], = ax_kin.plot(self.data_c[0, :], Ys, color='darkblue', lw=1.5)
+            self.ax_exp['line_spec'], = ax_spec.plot(Xs, self.data_c[:, 0], color='darkred', lw=1.5, marker='.')
+            self.ax_exp['line_kin'], = ax_kin.plot(self.data_c[0, :], Ys, color='darkblue', lw=1.5, marker='.')
             self.ax_exp['vline'] = ax_map.axvline(Xs[0], color='white', ls='--', lw=1, alpha=0.8)
             self.ax_exp['hline'] = ax_map.axhline(Ys[0], color='white', ls='--', lw=1, alpha=0.8)
             
-            ax_spec.set_xlim(Xs.min(), Xs.max()); ax_spec.set_ylim(self.exp_vmin, self.exp_vmax)
+            # Usamos los límites ensanchados (map_Xs) para que no crashee set_xlim
+            ax_spec.set_xlim(map_Xs.min(), map_Xs.max()); ax_spec.set_ylim(self.exp_vmin, self.exp_vmax)
             ax_kin.set_xlim(self.exp_vmin, self.exp_vmax)
             
-            from mpl_toolkits.axes_grid1 import make_axes_locatable
+            
+            
             divider = make_axes_locatable(ax_kin)
             cax = divider.append_axes("right", size="15%", pad=0.1)
             self.cbar_exp = self.canvas_exp.figure.colorbar(self.pcm_exp, cax=cax, label='$\Delta A$ / -')
@@ -3451,24 +3474,39 @@ class GlobalFitPanel(QDialog):
             if Ys is None or Ys.shape[0] != Z.shape[0]: Ys = np.arange(Z.shape[0])
     
             try:
-                if Z.shape[0] < 2 or Z.shape[1] < 2: return
+               
+                # --- FIX INTELIGENTE: Dinámico según las dimensiones ---
+                current_shading = 'nearest' if (len(Xs) == 1 or len(Ys) == 1) else 'auto'
+                
+                map_Xs, map_Ys, map_Z = Xs.copy(), Ys.copy(), Z.copy()
+                if len(Xs) == 1:
+                    map_Xs = np.array([map_Xs[0] - 5, map_Xs[0] + 5])
+                    map_Z = np.column_stack((map_Z, map_Z))
+                if len(Ys) == 1:
+                    map_Ys = np.array([map_Ys[0] - 0.5, map_Ys[0] + 0.5])
+                    map_Z = np.vstack((map_Z, map_Z))
+                
                 vmin = getattr(self, 'exp_vmin', np.nanmin(Z))
                 vmax = getattr(self, 'exp_vmax', np.nanmax(Z))
     
-                self.pcm_fit = ax_map.pcolormesh(Xs, Ys, Z, shading='auto', cmap='jet', vmin=vmin, vmax=vmax)
+                self.pcm_fit = ax_map.pcolormesh(map_Xs, map_Ys, map_Z, shading=current_shading, cmap='jet', vmin=vmin, vmax=vmax)
+                # -------------------------------------------------------
+
                 ax_map.set_xlabel("Wavelength (nm)"); ax_map.set_ylabel("Delay (ps)")
                 
                 if hasattr(self, 'yscale') and self.yscale == 'symlog':
                     ax_map.set_yscale('symlog', linthresh=2)
                 else:
                     ax_map.set_yscale('linear')
-                    
-                self.ax_fit['line_spec'], = ax_spec.plot(Xs, data_mat[:, 0], color='darkred', lw=1.5)
-                self.ax_fit['line_kin'], = ax_kin.plot(data_mat[0, :], Ys, color='darkblue', lw=1.5)
+                
+                self.ax_fit['line_spec'], = ax_spec.plot(Xs, data_mat[:, 0], color='darkred', lw=1.5, marker='.')
+                self.ax_fit['line_kin'], = ax_kin.plot(data_mat[0, :], Ys, color='darkblue', lw=1.5, marker='.')                    
+                # self.ax_fit['line_spec'], = ax_spec.plot(Xs, data_mat[:, 0], color='darkred', lw=1.5)
+                # self.ax_fit['line_kin'], = ax_kin.plot(data_mat[0, :], Ys, color='darkblue', lw=1.5)
                 self.ax_fit['vline'] = ax_map.axvline(Xs[0], color='white', ls='--', lw=1, alpha=0.8)
                 self.ax_fit['hline'] = ax_map.axhline(Ys[0], color='white', ls='--', lw=1, alpha=0.8)
     
-                ax_spec.set_xlim(Xs.min(), Xs.max()); ax_spec.set_ylim(vmin, vmax)
+                ax_spec.set_xlim(map_Xs.min(), map_Xs.max()); ax_spec.set_ylim(vmin, vmax)
                 ax_kin.set_xlim(vmin, vmax)
     
                 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -3501,11 +3539,23 @@ class GlobalFitPanel(QDialog):
         if Ys is None or Ys.shape[0] != Z.shape[0]: Ys = np.arange(Z.shape[0])
 
         try:
-            if Z.shape[0] < 2 or Z.shape[1] < 2: return
+            # --- FIX INTELIGENTE: Dinámico según las dimensiones ---
+            current_shading = 'nearest' if (len(Xs) == 1 or len(Ys) == 1) else 'auto'
+            
+            map_Xs, map_Ys, map_Z = Xs.copy(), Ys.copy(), Z.copy()
+            if len(Xs) == 1:
+                map_Xs = np.array([map_Xs[0] - 5, map_Xs[0] + 5])
+                map_Z = np.column_stack((map_Z, map_Z))
+            if len(Ys) == 1:
+                map_Ys = np.array([map_Ys[0] - 0.5, map_Ys[0] + 0.5])
+                map_Z = np.vstack((map_Z, map_Z))
+
             vals = Z.flatten()
             vmin = np.percentile(vals, 1); vmax = np.percentile(vals, 99)
 
-            self.pcm_resid = ax_map.pcolormesh(Xs, Ys, Z, shading='auto', cmap='jet', vmin=vmin, vmax=vmax)
+            self.pcm_resid = ax_map.pcolormesh(map_Xs, map_Ys, map_Z, shading=current_shading, cmap='jet', vmin=vmin, vmax=vmax)
+            # -------------------------------------------------------
+            
             ax_map.set_xlabel("Wavelength (nm)"); ax_map.set_ylabel("Delay (ps)")
             
             if hasattr(self, 'yscale') and self.yscale == 'symlog':
@@ -3513,12 +3563,14 @@ class GlobalFitPanel(QDialog):
             else:
                 ax_map.set_yscale('linear')
                 
-            self.ax_resid['line_spec'], = ax_spec.plot(Xs, data_mat[:, 0], color='purple', lw=1.5)
-            self.ax_resid['line_kin'], = ax_kin.plot(data_mat[0, :], Ys, color='green', lw=1.5)
+            # self.ax_resid['line_spec'], = ax_spec.plot(Xs, data_mat[:, 0], color='purple', lw=1.5)
+            # self.ax_resid['line_kin'], = ax_kin.plot(data_mat[0, :], Ys, color='green', lw=1.5)
+            self.ax_resid['line_spec'], = ax_spec.plot(Xs, data_mat[:, 0], color='purple', lw=1.5, marker='.')
+            self.ax_resid['line_kin'], = ax_kin.plot(data_mat[0, :], Ys, color='green', lw=1.5, marker='.')
             self.ax_resid['vline'] = ax_map.axvline(Xs[0], color='white', ls='--', lw=1, alpha=0.8)
             self.ax_resid['hline'] = ax_map.axhline(Ys[0], color='white', ls='--', lw=1, alpha=0.8)
 
-            ax_spec.set_xlim(Xs.min(), Xs.max()); ax_spec.set_ylim(vmin, vmax)
+            ax_spec.set_xlim(map_Xs.min(), map_Xs.max()); ax_spec.set_ylim(vmin, vmax)
             ax_kin.set_xlim(vmin, vmax)
 
             from mpl_toolkits.axes_grid1 import make_axes_locatable

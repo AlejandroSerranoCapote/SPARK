@@ -2548,6 +2548,8 @@ if __name__ == "__main__":
     # =====================================================================
     # Application Entry Point
     # =====================================================================
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     
     # 1. Create the application instance
     app = QApplication(sys.argv)
