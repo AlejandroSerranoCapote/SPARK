@@ -1,45 +1,46 @@
+# 1. Librerías estándar
 import os
 import re
-import numpy as np
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
-    QMessageBox, QProgressBar, QTableWidget, QTableWidgetItem,
-    QHeaderView, QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, 
-    QFormLayout, QWidget, QTabWidget, QApplication, QInputDialog,
-    QCheckBox, QLineEdit, QListView,QFileDialog,QScrollArea,QShortcut,
-    QGraphicsOpacityEffect,QSplitter
-)
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QThread, pyqtSignal,QEasingCurve
-from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor,QKeySequence
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-import matplotlib.pyplot as plt
-from scipy.optimize import least_squares
-import fit
-from matplotlib.widgets import Cursor
-from matplotlib.ticker import FuncFormatter
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
-    QMessageBox, QLineEdit, QCheckBox, QListWidget, 
-    QAbstractItemView, QListWidgetItem, QColorDialog, QFormLayout
-)
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
-    QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, 
-    QComboBox, QTabWidget, QWidget, QInputDialog, QGraphicsView, 
-    QGraphicsScene, QGraphicsRectItem, QGraphicsTextItem, QGraphicsLineItem, QGraphicsItem
-)
-from PyQt5.QtCore import Qt, QRectF, QLineF, QPointF,QThread, pyqtSignal
-from PyQt5.QtGui import QPen, QBrush, QColor, QFont, QPolygonF
-import matplotlib.gridspec as gridspec
-from matplotlib.backends.backend_pdf import PdfPages
 import datetime
 
+# 2. PyQt5 (Interfaz Gráfica)
+from PyQt5.QtCore import (
+    Qt, QTimer, QPropertyAnimation, QThread, pyqtSignal, QEasingCurve,
+    QRectF, QLineF, QPointF
+)
+from PyQt5.QtGui import (
+    QIcon, QPixmap, QPainter, QColor, QKeySequence, QPen, QBrush, 
+    QFont, QPolygonF
+)
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
+    QPushButton, QLabel, QMessageBox, QProgressBar, QTableWidget, 
+    QTableWidgetItem, QHeaderView, QComboBox, QDoubleSpinBox, QSpinBox, 
+    QGroupBox, QTabWidget, QInputDialog, QCheckBox, QLineEdit, QListView,
+    QFileDialog, QScrollArea, QShortcut, QGraphicsOpacityEffect, QSplitter,
+    QListWidget, QAbstractItemView, QListWidgetItem, QColorDialog,
+    QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsTextItem, 
+    QGraphicsLineItem, QGraphicsItem
+)
+
+# 3. Datos y Matemáticas
+import numpy as np
+from scipy.optimize import least_squares
+import fit
+
+# 4. Matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt5agg import (
+    FigureCanvasQTAgg as FigureCanvas, 
+    NavigationToolbar2QT as NavigationToolbar
+)
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.widgets import Cursor
+from matplotlib.ticker import FuncFormatter
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 # ---------------------------------------------------------------------
 # GUI Styling Constants
 # ---------------------------------------------------------------------
@@ -4411,20 +4412,13 @@ class GlobalFitPanel(QDialog):
             rmsd = np.sqrt(np.mean(resid**2))
             self.show_toast(f"Fit completed successfully (RMSD: {rmsd:.2e})")
             
-                
     def compute_profile_likelihood(self, param_idx, n_steps=15, confidence=0.95, span_sigma=6, progress_callback=None):
         """
-        Calcula el intervalo de verosimilitud-perfil (profile likelihood) para 
-        el parámetro cinético `param_idx`.
-    
-        A diferencia del error basado en covarianza (que asume que el chi-cuadrado 
-        se comporta como una parábola simétrica alrededor del óptimo), este método 
-        fija el parámetro en una rejilla de valores y REAJUSTA todos los demás 
-        parámetros cinéticos libres en cada punto. El intervalo de confianza es la 
-        región donde el chi-cuadrado no empeora más de lo que el azar explicaría 
-        al nivel de confianza dado (test de razón de verosimilitudes, 1 g.d.l.).
+        Calcula el intervalo de verosimilitud-perfil (profile likelihood) fijando 
+        el parámetro en una rejilla y reajustando el resto sincrónicamente.
         """
         from scipy.stats import chi2 as chi2_dist
+        from scipy.optimize import least_squares
     
         if self.fit_x is None or self.fit_result is None:
             raise RuntimeError("Ejecuta un fit antes de calcular el perfil de verosimilitud.")
@@ -4434,32 +4428,66 @@ class GlobalFitPanel(QDialog):
         grid = np.linspace(best_val - span_sigma * best_err, best_val + span_sigma * best_err, n_steps)
     
         chi2_values = []
-        original_is_fixed = self.is_fixed.copy()
-        original_fit_x = self.fit_x.copy()
+        
+        TD = getattr(self, '_temp_fit_TD', self.TD)
+        WL = getattr(self, '_temp_fit_WL', self.WL)
+        data_flat = self.data_c.T.flatten()
+        use_nnls = getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked()
+        
+        # Empezamos desde los parámetros óptimos del último fit exitoso
+        original_ini = self.fit_x.copy() 
+        original_is_fixed = getattr(self, 'is_fixed', np.zeros(len(original_ini), dtype=bool)).copy()
     
         try:
             for k, val in enumerate(grid):
+                # Si el usuario cancela con el botón rojo
                 if getattr(self, '_abort_fit', False):
                     raise InterruptedError("Identifiability analysis cancelled.")
     
-                self.ini = original_fit_x.copy()
-                self.ini[param_idx] = val
-                self.is_fixed = original_is_fixed.copy()
-                self.is_fixed[param_idx] = True
+                # 1. Configurar los parámetros para este paso específico usando variables locales
+                current_ini = original_ini.copy()
+                current_ini[param_idx] = val
+                
+                current_fixed = original_is_fixed.copy()
+                current_fixed[param_idx] = True # Clavamos el parámetro que estamos analizando
+                
+                num_kin_params = self._get_num_kinetic_params()
+                is_kinetic = np.zeros(len(current_ini), dtype=bool)
+                is_kinetic[:num_kin_params] = True
+                
+                free_indices = np.where(is_kinetic & ~current_fixed)[0]
+                
+                # 2. Función de residuales temporal para SciPy
+                def sync_residuals(p_free):
+                    x_full = current_ini.copy()
+                    x_full[free_indices] = p_free
+                    C = self._build_C_matrix(x_full, TD, WL)
+                    F, _ = fit.eval_varpro_model(C, self.data_c.T, enforce_nonneg=use_nnls, numExp=self.numExp)
+                    return F.flatten() - data_flat
+
+                # 3. Lanzar el motor matemático síncrono (directo, sin QThreads)
+                if len(free_indices) > 0:
+                    x0_free = current_ini[free_indices]
+                    low_free = self.limi[free_indices]
+                    upp_free = self.lims[free_indices]
+                    
+                    # Relajamos ftol y xtol a 1e-6 para que evalúe rápido sin pérdida de calidad práctica
+                    res = least_squares(
+                        fun=sync_residuals, x0=x0_free, bounds=(low_free, upp_free),
+                        method='trf', x_scale='jac', loss='soft_l1',      
+                        ftol=1e-6, xtol=1e-6, verbose=0 
+                    )
+                    chi2_values.append(float(np.sum(res.fun ** 2)))
+                else:
+                    # Si no hay parámetros libres, solo se evalúa la función de error
+                    res_eval = sync_residuals([])
+                    chi2_values.append(float(np.sum(res_eval ** 2)))
     
-                self._run_least_squares_with_progress()
-                chi2_values.append(float(np.sum(self.fit_result.fun ** 2)))
-    
+                # Emitimos el progreso a la interfaz para que no se congele
                 if progress_callback is not None:
                     progress_callback(k + 1, len(grid))
         finally:
-            # Restauramos siempre el ajuste óptimo original. Soltamos la bandera 
-            # de aborto momentáneamente para que esta última re-optimización 
-            # pueda completarse sin cortarse a mitad de camino.
             self._abort_fit = False
-            self.is_fixed = original_is_fixed
-            self.ini = original_fit_x.copy()
-            self._run_least_squares_with_progress()
     
         chi2_values = np.array(chi2_values)
         if len(chi2_values) == 0:
@@ -4478,6 +4506,7 @@ class GlobalFitPanel(QDialog):
             'lower_bound': lower_bound, 'upper_bound': upper_bound,
             'best_value': best_val, 'label': self._get_kinetic_param_label(param_idx),
         }
+    
     def _get_kinetic_param_label(self, i):
         """
         Devuelve una etiqueta legible para el parámetro cinético (NO lineal) de 
