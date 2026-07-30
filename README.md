@@ -23,6 +23,32 @@
 
 </div>
 
+## Installation
+
+**Requirements:** Python 3.8 or later.
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/AlejandroSerranoCapote/SPARK.git
+cd SPARK
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Launch
+python SPARK.py
+```
+
+### Build a standalone executable (Windows)
+
+```bash
+pyinstaller --onefile --noconsole --icon=icon.ico \
+            --exclude-module PyQt6 \
+            "SPARK.py"
+```
+
+The `.exe` will appear in the `dist/` folder with no Python installation required on the target machine.
+
 ---
 
 ## Table of Contents
@@ -38,6 +64,7 @@
 - [Contributing](#contributing)
 - [Citation](#citation)
 - [License](#license)
+
 
 ---
 
@@ -240,31 +267,7 @@ The computational cost is $N_\text{steps}$ full refits per parameter. The analys
 
 ---
 
-## Installation
 
-**Requirements:** Python 3.8 or later.
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/AlejandroSerranoCapote/Ultrafast-Spectroscopy-Analyzer.git
-cd Ultrafast-Spectroscopy-Analyzer
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Launch
-python UltrafastSpectroscopyAnalyzer.py
-```
-
-### Build a standalone executable (Windows)
-
-```bash
-pyinstaller --onefile --noconsole --icon=icon.ico \
-            --exclude-module PyQt6 \
-            "UltrafastSpectroscopyAnalyzer.py"
-```
-
-The `.exe` will appear in the `dist/` folder with no Python installation required on the target machine.
 
 ### Dependencies
 
