@@ -3835,6 +3835,7 @@ class GlobalFitPanel(QDialog):
                 if not hasattr(self, 'current_custom_model') or self.current_custom_model is None:
                     QMessageBox.warning(self, "Atención", "Aún no has diseñado ningún modelo. Abre el Visual Builder primero.")
                     return
+                model = self.current_custom_model
                 num_states = len(self.current_custom_model.states)
                 L_needed = num_kin_params + numWL * num_states
             elif is_oscillation:
