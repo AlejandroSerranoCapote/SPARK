@@ -316,30 +316,41 @@ def get_concentration_matrix_oscillation(x_nl, t, numExp, use_art=False, artifac
 
 def eval_varpro_model(C, data_c_T, enforce_nonneg=False, numExp=None):
     """
-    Ejecuta la Proyección Variable.
-    Si enforce_nonneg es True, fuerza a que las amplitudes de las especies (SAS)
-    sean >= 0, pero permite que el artefacto coherente fluya libremente.
+    Ejecuta la Proyección Variable (VarPro).
+    Permite que C sea una única matriz 2D (t0 global, ultra-rápido) 
+    o una lista de matrices 2D (una por longitud de onda, para t0 independiente).
     """
-    if enforce_nonneg and numExp is not None:
-        S_T = np.zeros((C.shape[1], data_c_T.shape[1]))
-        
-        # Límites: [0, infinito] para las especies exponenciales
-        # [-infinito, infinito] para el artefacto coherente o la oscilación
-        lb = np.full(C.shape[1], -np.inf)
-        lb[:numExp] = 0.0 
-        
-        # Lazo súper optimizado usando el método Bounded Variables (BVLS)
-        for i in range(data_c_T.shape[1]):
-            res = lsq_linear(C, data_c_T[:, i], bounds=(lb, np.inf), method='bvls')
-            S_T[:, i] = res.x
-            
-        F = C @ S_T
-        return F, S_T
-    else:
-        # Mínimos cuadrados lineales estándar (Sin límites)
+    is_multi_C = isinstance(C, list)
+    
+    # --- Vía ultra-rápida original (Si no hay t0 independiente ni NNLS) ---
+    if not is_multi_C and not enforce_nonneg:
         S_T, _, _, _ = np.linalg.lstsq(C, data_c_T, rcond=None)
         F = C @ S_T
         return F, S_T
+        
+    # --- Vía de cálculo avanzado ---
+    num_bases = C[0].shape[1] if is_multi_C else C.shape[1]
+    num_wl = data_c_T.shape[1]
+    
+    S_T = np.zeros((num_bases, num_wl))
+    F = np.zeros_like(data_c_T)
+    
+    if enforce_nonneg and numExp is not None:
+        lb = np.full(num_bases, -np.inf)
+        lb[:numExp] = 0.0 
+        
+        for i in range(num_wl):
+            C_i = C[i] if is_multi_C else C
+            res = lsq_linear(C_i, data_c_T[:, i], bounds=(lb, np.inf), method='bvls')
+            S_T[:, i] = res.x
+            F[:, i] = C_i @ S_T[:, i]
+    else:
+        for i in range(num_wl):
+            C_i = C[i] if is_multi_C else C
+            S_T[:, i], _, _, _ = np.linalg.lstsq(C_i, data_c_T[:, i], rcond=None)
+            F[:, i] = C_i @ S_T[:, i]
+            
+    return F, S_T
 
 def get_coherent_artifact(t, t0, w, mode='both'):
     """

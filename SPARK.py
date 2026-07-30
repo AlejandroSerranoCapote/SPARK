@@ -243,7 +243,7 @@ class MainApp(QMainWindow):
         self.btn_github.clicked.connect(self.open_github)
         left_layout.addWidget(self.btn_github)
 
-        author = QLabel("v1.4 \n© A. Serrano Capote")
+        author = QLabel("v1.5.0 \n© A. Serrano Capote")
         author.setStyleSheet("color: #475569; font-size: 11px; margin-top: 10px;")
         left_layout.addWidget(author)
 

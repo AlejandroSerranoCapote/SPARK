@@ -488,23 +488,31 @@ class TraceExplorerWindow(QDialog):
         td_log = np.geomspace(1.0, max(1.1, td.max()), 1000)
         td_smooth = np.unique(np.concatenate((td_lin, td_log)))
         
-        # --- CÁLCULO DIRECTO POR VARPRO (SIN CHIRP) ---
+        # --- FIX: Construir un vector x local con el t0 correcto ---
+        x_local = self.p.fit_x.copy()
+        is_indep_t0 = getattr(self.p, 'chk_indep_t0', None) and self.p.chk_indep_t0.isChecked()
+        if is_indep_t0:
+            base_kin = self.p._get_num_kinetic_params() - len(self.wl_array)
+            x_local[1] = self.p.fit_x[base_kin + idx]
+        # -----------------------------------------------------------
+        
+        # --- CÁLCULO DIRECTO POR VARPRO ---
         if hasattr(self.p, 'S_T_full'):
             use_art = getattr(self.p, 'chk_artifact', None) and self.p.chk_artifact.isChecked()
             art_mode = self.p._get_artifact_mode()
             
             if self.p.model_type == "Sequential":
-                C_smooth = fit.get_concentration_matrix_sequential(self.p.fit_x, td_smooth, self.p.numExp, use_art,art_mode)
+                C_smooth = fit.get_concentration_matrix_sequential(x_local, td_smooth, self.p.numExp, use_art,art_mode)
             elif self.p.model_type == 'Damped Oscillation':
-                C_smooth = fit.get_concentration_matrix_oscillation(self.p.fit_x, td_smooth, self.p.numExp, use_art,art_mode)
+                C_smooth = fit.get_concentration_matrix_oscillation(x_local, td_smooth, self.p.numExp, use_art,art_mode)
             elif self.p.model_type == "Custom GUI Model":
                 model = self.p.current_custom_model
-                w, t0 = self.p.fit_x[0], self.p.fit_x[1]
+                w, t0 = x_local[0], x_local[1]
                 num_params_cineticos = len(model.param_labels)
-                x_nl_params = self.p.fit_x[2:2+num_params_cineticos]
+                x_nl_params = x_local[2:2+num_params_cineticos]
                 C_smooth = model.get_concentration_matrix(x_nl_params, td_smooth, w, t0, use_art,art_mode)
             else:
-                C_smooth = fit.get_concentration_matrix_global(self.p.fit_x, td_smooth, self.p.numExp, use_art,art_mode)
+                C_smooth = fit.get_concentration_matrix_global(x_local, td_smooth, self.p.numExp, use_art,art_mode)
                 
             y_fit_smooth = C_smooth @ self.p.S_T_full[:, idx]
         else:
@@ -533,6 +541,58 @@ class TraceExplorerWindow(QDialog):
         self.fig.tight_layout()
         self.canvas.draw()
     
+    def save_trace(self):
+        idx = self.combo_wl.currentIndex()
+        real_wl = self.wl_array[idx]
+        
+        # 1. Guardar la imagen PNG
+        img_name = f"Trace_{real_wl:.1f}nm.png"
+        self.fig.savefig(os.path.join(self.outdir, img_name), dpi=300)
+        
+        # 2. Extraer tiempos y datos experimentales
+        td = self.td_array
+        y_exp = self.p.data_c[idx, :]
+        
+        # --- FIX: Construir un vector x local con el t0 correcto ---
+        x_local = self.p.fit_x.copy()
+        is_indep_t0 = getattr(self.p, 'chk_indep_t0', None) and self.p.chk_indep_t0.isChecked()
+        if is_indep_t0:
+            base_kin = self.p._get_num_kinetic_params() - len(self.wl_array)
+            x_local[1] = self.p.fit_x[base_kin + idx]
+        # -----------------------------------------------------------
+        
+        # 3. Recalcular el Fit para los puntos experimentales exactos (td)
+        if hasattr(self.p, 'S_T_full'):
+            use_art = getattr(self.p, 'chk_artifact', None) and self.p.chk_artifact.isChecked()
+            art_mode = self.p._get_artifact_mode()
+
+            if self.p.model_type == "Sequential":
+                C_exp = fit.get_concentration_matrix_sequential(x_local, td, self.p.numExp, use_art,art_mode)
+            elif self.p.model_type == 'Damped Oscillation':
+                C_exp = fit.get_concentration_matrix_oscillation(x_local, td, self.p.numExp, use_art,art_mode)
+            elif self.p.model_type == "Custom GUI Model":
+                model = self.p.current_custom_model
+                w, t0 = x_local[0], x_local[1]
+                num_params_cineticos = len(model.param_labels)
+                x_nl_params = x_local[2:2+num_params_cineticos]
+                C_exp = model.get_concentration_matrix(x_nl_params, td, w, t0, use_art,art_mode)
+            else:
+                C_exp = fit.get_concentration_matrix_global(x_local, td, self.p.numExp, use_art,art_mode)
+                
+            y_fit_exp = C_exp @ self.p.S_T_full[:, idx]
+        else:
+            y_fit_exp = np.zeros_like(td)
+            
+        # 4. Empaquetar las 3 columnas y exportar a .txt
+        txt_name = f"Trace_{real_wl:.1f}nm.txt"
+        txt_path = os.path.join(self.outdir, txt_name)
+        
+        matriz_guardar = np.column_stack((td, y_exp, y_fit_exp))
+        cabecera = f"Wavelength: {real_wl:.1f} nm\nTime_Delay(ps)\tExperimental_Data\tFit_Data"
+        
+        np.savetxt(txt_path, matriz_guardar, fmt='%.6e', delimiter='\t', header=cabecera)
+        QMessageBox.information(self, "Saved", f"Trace PNG and TXT data saved successfully in:\n{self.outdir}")
+        
     def save_trace(self):
         idx = self.combo_wl.currentIndex()
         real_wl = self.wl_array[idx]
@@ -1869,6 +1929,7 @@ class GlobalFitPanel(QDialog):
         self.chk_norm_data.setChecked(False)
         self.chk_norm_data.stateChanged.connect(lambda state: self._preview_data_processing())
         form_prep.addRow(self.chk_norm_data)
+               
         
         self.btn_preview = QPushButton("Apply and Preview")
         self.btn_preview.setStyleSheet("background-color: #28A745; border: 1px solid #218838; color: white;") 
@@ -1951,6 +2012,12 @@ class GlobalFitPanel(QDialog):
         self.combo_model = QComboBox()
         self.combo_model.addItems(["Parallel (DAS)", "Sequential (SAS)", "Damped Oscillation", "Custom GUI Model"])
         form_model.addRow("Model Type:", self.combo_model)
+        
+        # --- Checkbox para t0 independiente por píxel ---
+        self.chk_indep_t0 = QCheckBox("Fit independent t0 per wavelength")
+        self.chk_indep_t0.setToolTip("Adds a nonlinear t0 parameter for each wavelength to the global fit.")
+        form_model.addRow(self.chk_indep_t0)
+        # -------------------------------------------------------
         
         self.btn_build_model = QPushButton("Open Visual Model Builder")
         self.btn_build_model.setEnabled(False)
@@ -2430,7 +2497,7 @@ class GlobalFitPanel(QDialog):
         """
         self.yscale = text.lower() # 'linear' or 'symlog'
         
-        self._update_exp_canvas()
+        self._update_exp_canvas(use_processed=True)
         self._update_fit_canvas()
         self._update_resid_canvas()
         
@@ -2580,35 +2647,42 @@ class GlobalFitPanel(QDialog):
             
         # === BLOQUE DE MODELOS ESTÁNDAR ===
         else:
-            if is_oscillation:
-                 L = (2 + numExp + 3) + numWL * (numExp + 1)
-                 num_kin_params = 2 + numExp + 3
-                 self.ini = np.zeros(L); self.limi = -np.inf * np.ones(L); self.lims = np.inf * np.ones(L)
-                 self.ini[0] = w_guess; self.limi[0] = 0.05; self.lims[0] = 2.0
-                 self.ini[1] = 0.0;     self.limi[1] = -5.0; self.lims[1] = 5.0
-                 base_tau = 2
-                 for n in range(numExp):
-                     val_t = taus_defaults[n] if n < len(taus_defaults) else 1000.0*(n+1)
-                     self.ini[base_tau + n] = val_t
-                     self.limi[base_tau + n] = 0.001
-                     self.lims[base_tau + n] = 1e8
-                 idx_osc = base_tau + numExp
-                 self.ini[idx_osc] = 0.1; self.limi[idx_osc] = 0.0; self.lims[idx_osc] = 100.0
-                 self.ini[idx_osc+1] = 1.0; self.limi[idx_osc+1] = 0.0; self.lims[idx_osc+1] = 500.0
-                 self.ini[idx_osc+2] = 0.0; self.limi[idx_osc+2] = -np.pi; self.lims[idx_osc+2] = np.pi
-                 val_A = 1000.0 if tech == 'TCSPC' else (5.0 if tech == 'FLUPS' else 0.01)
-                 self.ini[num_kin_params:] = val_A 
-                 
-            else:
-                L = 2 + numExp + numWL*numExp
-                num_kin_params = 2 + numExp
+                # 1. Calculamos la base normal
+                base_kin_params = 2 + numExp
+                # 2. Calculamos el total (que incluirá los t0 si está marcado)
+                num_kin_params = self._get_num_kinetic_params()
+                
+                L = num_kin_params + numWL*numExp
                 self.ini = np.zeros(L); self.limi = -np.inf * np.ones(L); self.lims = np.inf * np.ones(L)
+                
                 self.ini[0] = w_guess; self.limi[0] = 0.05; self.lims[0] = 2.0
-                self.ini[1] = 0.0;     self.limi[1] = -5.0; self.lims[1] = 5.0
+                self.ini[1] = 0.0;     self.limi[1] = -5.0; self.lims[1] = 5.0 # t0 global de referencia
+                
                 base_tau = 2
                 for n in range(numExp):
                     self.ini[base_tau + n] = taus_defaults[n] if n < len(taus_defaults) else 1000.0*(n+1)
                     self.limi[base_tau + n] = 0.001; self.lims[base_tau + n] = 1e8
+                
+                # --- NUEVO: Rellenar los t0 individuales si el modo está activo ---
+                if num_kin_params > base_kin_params:
+                    # Rescatamos el eje de tiempos correcto
+                    time_axis = getattr(self, '_td_proc', getattr(self, 'TD', None))
+                    
+                    for i in range(base_kin_params, num_kin_params):
+                        idx_wl = i - base_kin_params
+                        
+                        # Buscar el pico real de los datos
+                        if getattr(self, 'data_c', None) is not None and time_axis is not None:
+                            trace = self.data_c[idx_wl, :]
+                            t0_guess = time_axis[np.argmax(np.abs(trace))]
+                        else:
+                            t0_guess = 0.0
+                            
+                        # PROTECCIÓN: Asegurar que el guess cae estrictamente dentro de los límites
+                        self.ini[i] = np.clip(t0_guess, -4.99, 4.99)     
+                        self.limi[i] = -5.0   
+                        self.lims[i] = 5.0
+                        
                 val_A = 1000.0 if tech == 'TCSPC' else (5.0 if tech == 'FLUPS' else 0.01)
                 self.ini[num_kin_params:] = val_A
                 
@@ -3219,14 +3293,10 @@ class GlobalFitPanel(QDialog):
             self.data_c_list.append(temp_data)
             self.wl_proc_list.append(temp_WL)
             self.td_proc_list.append(temp_TD)
-
-    
-                    
-        
+      
         # Actualizar variables del modelo global usando el archivo SELECCIONADO 
         if self.data_c_list:
             current_idx = self.combo_active_dataset.currentIndex()
-            # Si por algún motivo el índice es inválido, usamos 0 por defecto
             if current_idx < 0 or current_idx >= len(self.data_c_list):
                 current_idx = 0
                 
@@ -3236,61 +3306,8 @@ class GlobalFitPanel(QDialog):
             
             self._update_exp_canvas(use_processed=True)
             self.label_status.setText(f"Processed {len(self.data_c_list)} files")
-            
-            try:
-                
-                outdir = os.path.join(self.base_dir, "Plots")
-                os.makedirs(outdir, exist_ok=True)
-                
-                # Iteramos sobre todos los datasets que se acaban de procesar
-                for i in range(len(self.data_c_list)):
-                    z_data = self.data_c_list[i]
-                    x_data = self.wl_proc_list[i]
-                    y_data = self.td_proc_list[i]
-                    
-                    # Extraer el nombre original sin la extensión .npy
-                    if hasattr(self, 'filenames') and i < len(self.filenames):
-                        base_name = os.path.splitext(self.filenames[i])[0]
-                    else:
-                        base_name = f"Dataset_{i+1}"
-                        
-                    # 1. Crear figura "desconectada" de la GUI para evitar pantallazos
-                    fig_temp = Figure(figsize=(6, 4))
-                    canvas_temp = FigureCanvasAgg(fig_temp) # Motor de renderizado en segundo plano
-                    ax_temp = fig_temp.add_subplot(111)
-                    
-                    # 2. Calcular límites reales para no cortar la señal
-                    vmin_val = np.nanmin(z_data)
-                    vmax_val = np.nanmax(z_data)
-                    
-                    # 3. Dibujar el mapa
-                    pcm = ax_temp.pcolormesh(x_data, y_data, z_data.T, 
-                                             shading='auto', cmap='jet', 
-                                             vmin=vmin_val, vmax=vmax_val)
-                    
-                    ax_temp.set_title(f"Processed: {base_name}", fontsize=10)
-                    ax_temp.set_xlabel("Wavelength (nm)")
-                    ax_temp.set_ylabel("Delay (ps)")
-                    
-                    # Aplicar escala (SymLog o Lineal) según la interfaz
-                    if hasattr(self, 'yscale') and self.yscale == 'symlog':
-                        ax_temp.set_yscale('symlog', linthresh=2) 
-                    else:
-                        ax_temp.set_yscale('linear')
-                        
-                    fig_temp.colorbar(pcm, ax=ax_temp, label='$\Delta A$ / -')
-                    fig_temp.tight_layout()
-                    
-                    # 4. Guardar imagen (Ya no hace falta plt.close() porque no usa pyplot)
-                    filepath = os.path.join(outdir, f"Map_Processed_{base_name}.png")
-                    fig_temp.savefig(filepath, dpi=300)
-                
-                print(f"Éxito: Se han exportado {len(self.data_c_list)} mapas procesados a la carpeta /Plots/")
-                
-            except Exception as e:
-                print(f"Error durante el guardado masivo de los mapas procesados: {e}")
-                
-
+        
+        
     def _update_exp_canvas(self, use_processed=False):
         if self.data_c is None: return
         
@@ -3600,7 +3617,8 @@ class GlobalFitPanel(QDialog):
                 QMessageBox.warning(self, "No data", "Load data first.")
                 return
             
-            self._preview_data_processing()
+            if self.data_c is None or self.data_c.size == 0:
+                self._preview_data_processing()
             if self.data_c is None or self.data_c.size == 0: return
 
             self.numExp = self.spin_numExp.value()
@@ -3624,13 +3642,16 @@ class GlobalFitPanel(QDialog):
 
             numWL = self.data_c.shape[0] if self.data_c is not None else 0
             
-            if self.model_type == "Damped Oscillation":
-                 L_needed = (2 + self.numExp + 3) + numWL * (self.numExp + 1)
-            elif self.model_type == "Custom GUI Model":
-                 num_kin_params = len(self.current_custom_model.param_labels)
-                 L_needed = 2 + num_kin_params + numWL * self.numExp
-            else:             
-                L_needed = 2 + self.numExp + numWL*self.numExp
+            num_kin_params = self._get_num_kinetic_params()
+            
+            if self.model_type == "Custom GUI Model":
+                num_species = len(self.current_custom_model.states)
+            elif self.model_type == "Damped Oscillation":
+                num_species = self.numExp + 1
+            else:
+                num_species = self.numExp
+                
+            L_needed = num_kin_params + numWL * num_species
 
             if self.ini is None or len(self.ini) != L_needed:
                 self._generate_defaults()
@@ -3656,8 +3677,9 @@ class GlobalFitPanel(QDialog):
             QMessageBox.warning(self, "No data", "Load multiple files first to run a batch fit.")
             return
 
-        # 1. Aplicar pre-procesamiento si no se ha hecho
-        self._preview_data_processing()
+        # 1. Aplicar pre-procesamiento solo si la matriz está vacía
+        if self.data_c is None or self.data_c.size == 0:
+            self._preview_data_processing()
         
         # 2. Configuración inicial del modelo
         self.numExp = self.spin_numExp.value()
@@ -3793,6 +3815,7 @@ class GlobalFitPanel(QDialog):
         
         #self.label_status.setText("Redo applied (Ctrl+Y)")
         self.show_toast("↷ Redo applied", duration=1500)
+        
     def _open_guess_editor_and_update(self):
             """Opens a dialog to manually edit initial guesses, bounds, and fixed parameters."""
             numExp = self.spin_numExp.value()
@@ -3806,22 +3829,23 @@ class GlobalFitPanel(QDialog):
             else: numWL = 1
                 
             # Calculate expected vector length based on the selected model
+            num_kin_params = self._get_num_kinetic_params()
+            
             if is_custom:
                 if not hasattr(self, 'current_custom_model') or self.current_custom_model is None:
                     QMessageBox.warning(self, "Atención", "Aún no has diseñado ningún modelo. Abre el Visual Builder primero.")
                     return
-                model = self.current_custom_model
-                num_kin_params = len(model.param_labels)
-                num_states = len(model.states)
-                L_needed = 2 + num_kin_params + numWL * num_states
+                num_states = len(self.current_custom_model.states)
+                L_needed = num_kin_params + numWL * num_states
             elif is_oscillation:
-                L_needed = 2 + numExp + 3 + numWL * (numExp + 1)
+                L_needed = num_kin_params + numWL * (numExp + 1)
             else:
-                L_needed = 2 + numExp + numWL * numExp
+                L_needed = num_kin_params + numWL * numExp
                 
             # Regenerate defaults if the vector size is inconsistent
             if self.ini is None or len(self.ini) != L_needed:
                 self._generate_defaults()
+
     
             self.save_state_to_history()
             
@@ -4006,21 +4030,7 @@ class GlobalFitPanel(QDialog):
             x_full = self.ini.copy()
             x_full[free_indices] = p_free
             
-            use_art = getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked() 
-            art_mode = self._get_artifact_mode()
-
-            if self.model_type == "Sequential":
-                C = fit.get_concentration_matrix_sequential(x_full, TD, self.numExp, use_art, art_mode)
-            elif self.model_type == 'Damped Oscillation':
-                C = fit.get_concentration_matrix_oscillation(x_full, TD, self.numExp, use_art, art_mode)
-            elif self.model_type == "Custom GUI Model":
-                model = self.current_custom_model
-                w, t0 = x_full[0], x_full[1]
-                num_params_cineticos = len(model.param_labels)
-                x_nl_params = x_full[2:2+num_params_cineticos]
-                C = model.get_concentration_matrix(x_nl_params, TD, w, t0, use_art, art_mode)
-            else: 
-                C = fit.get_concentration_matrix_global(x_full, TD, self.numExp, use_art, art_mode)
+            C = self._build_C_matrix(x_full, TD, WL)
                 
             use_nnls = getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked()
             F, _ = fit.eval_varpro_model(C, self.data_c.T, enforce_nonneg=use_nnls, numExp=self.numExp)
@@ -4043,38 +4053,28 @@ class GlobalFitPanel(QDialog):
         self.fit_result = res
         self.fit_x = fit_x_final
         
-        # Recuperar la matriz lineal de amplitudes finales para el GUI
-        TD = self._temp_fit_TD
-        use_art = getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked()
-        art_mode = self._get_artifact_mode()
+        TD = getattr(self, '_temp_fit_TD', self.TD)
+        WL = getattr(self, '_temp_fit_WL', self.WL)
         
-        if self.model_type == "Sequential":
-            C = fit.get_concentration_matrix_sequential(self.fit_x, TD, self.numExp, use_art, art_mode)
-            A_base = 2 + self.numExp
-            num_species = self.numExp
+        # 1. Determinar cuántas especies lineales (amplitudes) hay
+        if self.model_type == "Custom GUI Model":
+            num_species = len(self.current_custom_model.states)
         elif self.model_type == 'Damped Oscillation':
-            C = fit.get_concentration_matrix_oscillation(self.fit_x, TD, self.numExp, use_art, art_mode)
-            A_base = 2 + self.numExp + 3
             num_species = self.numExp + 1
-        elif self.model_type == "Custom GUI Model":
-            model = self.current_custom_model
-            w, t0 = self.fit_x[0], self.fit_x[1]
-            num_params_cineticos = len(model.param_labels)
-            x_nl_params = self.fit_x[2:2+num_params_cineticos]
-            C = model.get_concentration_matrix(x_nl_params, TD, w, t0, use_art, art_mode)
-            A_base = 2 + num_params_cineticos
-            num_species = len(model.states)
         else:
-            C = fit.get_concentration_matrix_global(self.fit_x, TD, self.numExp, use_art, art_mode)
-            A_base = 2 + self.numExp
             num_species = self.numExp
             
-        _, S_T = fit.eval_varpro_model(C, self.data_c.T)
+        # 2. El índice donde empiezan las amplitudes es exactamente el número total de parámetros no lineales
+        A_base = self._get_num_kinetic_params()
+        
+        # 3. Construir C y evaluar
+        C = self._build_C_matrix(self.fit_x, TD, WL)
+        
+        use_nnls = getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked()
+        _, S_T = fit.eval_varpro_model(C, self.data_c.T, enforce_nonneg=use_nnls, numExp=self.numExp)
         
         # --- LA SOLUCIÓN ---
         # Filtramos S_T para quedarnos solo con las filas de las especies cinéticas 
-        # ([:num_species, :]), descartando las bases extra del artefacto coherente 
-        # para que cuadre perfectamente con el tamaño de self.fit_x.
         self.fit_x[A_base:] = S_T[:num_species, :].T.flatten()
         
         self.progress_bar.setValue(100)
@@ -4085,6 +4085,7 @@ class GlobalFitPanel(QDialog):
         
         # Restaurar botones
         self._cleanup_fit_ui()
+        
 
     def _on_fit_error(self, error_msg):
         """Se ejecuta si el QThread falla o es abortado."""
@@ -4104,21 +4105,23 @@ class GlobalFitPanel(QDialog):
         self.btn_run.setEnabled(True)
         self.btn_abort.setEnabled(False)
         self.btn_abort.setText("ABORT")
-    def _get_num_kinetic_params(self):
-        """
-        Número de parámetros NO lineales (w, t0, taus / parámetros cinéticos)
-        al principio del vector de parámetros. El resto son amplitudes 
-        espectrales por longitud de onda, que VarPro resuelve internamente vía 
-        mínimos cuadrados lineales en cada evaluación de residuales: nunca deben 
-        pasarse al optimizador no lineal como parámetros libres.
-        """
-        if self.model_type == "Damped Oscillation":
-            return 2 + self.numExp + 3
-        elif self.model_type == "Custom GUI Model":
-            return 2 + len(self.current_custom_model.param_labels)
-        else:
-            return 2 + self.numExp
         
+    def _get_num_kinetic_params(self):
+        """Número de parámetros NO lineales (w, t0 global, taus + t0s locales)."""
+        if self.model_type == "Damped Oscillation":
+            base = 2 + self.numExp + 3
+        elif self.model_type == "Custom GUI Model":
+            base = 2 + len(self.current_custom_model.param_labels)
+        else:
+            base = 2 + self.numExp
+            
+        # Si el usuario quiere un t0 por cada lambda, sumamos esa cantidad al vector
+        if getattr(self, 'chk_indep_t0', None) and self.chk_indep_t0.isChecked():
+            numWL = self.data_c.shape[0] if getattr(self, 'data_c', None) is not None else 0
+            return base + numWL
+            
+        return base
+    
     def _get_artifact_mode(self):
         
         """Devuelve el string de modo del artefacto coherente para fit.py."""
@@ -4129,286 +4132,284 @@ class GlobalFitPanel(QDialog):
         return ['both', 'raman', 'xpm'][idx]
       
     def _postprocess_fit_and_save(self):
-            """Calculates statistics, extracts spectra with errors, and saves files to the /fit/ directory."""
-            if self.fit_result is None: return
-    
-            x = self.fit_x
-            TD = getattr(self, '_temp_fit_TD', self.TD)
-            WL = getattr(self, '_temp_fit_WL', self.WL)
-            if TD is None or WL is None: return
-    
-            numWL = len(WL)
-            numExp = self.numExp
-            use_art = getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked()
-            art_mode = self._get_artifact_mode()
+        """Calculates statistics, extracts spectra with errors, and saves files to the /fit/ directory."""
+        if self.fit_result is None: return
 
-            
-            if self.model_type == "Sequential":
-                C = fit.get_concentration_matrix_sequential(x, TD, numExp, use_art,art_mode)
-            elif self.model_type == 'Damped Oscillation':
-                C = fit.get_concentration_matrix_oscillation(x, TD, numExp, use_art, art_mode)
-            elif self.model_type == "Custom GUI Model":
-                model = self.current_custom_model
-                w, t0 = x[0], x[1]
-                num_params_cineticos = len(model.param_labels)
-                x_nl_params = x[2:2+num_params_cineticos]
-                C = model.get_concentration_matrix(x_nl_params, TD, w, t0, use_art, art_mode)
-            else:
-                C = fit.get_concentration_matrix_global(x, TD, numExp, use_art,art_mode)
-            
-            use_nnls = getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked()
-            F_mat, S_T_full = fit.eval_varpro_model(C, self.data_c.T, enforce_nonneg=use_nnls, numExp=numExp) 
-            self.S_T_full = S_T_full
-            if "Oscillation" in self.model_type:
-                self.As = S_T_full[:numExp, :]
-                self.Bs = S_T_full[numExp, :]
-            else:
-                self.As = S_T_full[:numExp, :]
+        x = self.fit_x
+        TD = getattr(self, '_temp_fit_TD', self.TD)
+        WL = getattr(self, '_temp_fit_WL', self.WL)
+        if TD is None or WL is None: return
+
+        numWL = len(WL)
+        numExp = self.numExp
+        use_art = getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked()
+        art_mode = self._get_artifact_mode()
+
+        # --- NUEVO: Construimos C (matriz única o lista de matrices) mediante la función auxiliar ---
+        C = self._build_C_matrix(x, TD, WL)
+        
+        use_nnls = getattr(self, 'chk_nnls', None) and self.chk_nnls.isChecked()
+        F_mat, S_T_full = fit.eval_varpro_model(C, self.data_c.T, enforce_nonneg=use_nnls, numExp=numExp) 
+        self.S_T_full = S_T_full
+        if "Oscillation" in self.model_type:
+            self.As = S_T_full[:numExp, :]
+            self.Bs = S_T_full[numExp, :]
+        else:
+            self.As = S_T_full[:numExp, :]
+
+        fitres = F_mat.T 
+        resid = self.data_c - fitres
+        self.fit_fitres = fitres
+        self.fit_resid = resid
+
+        L_total = len(x)
+        self.ci = np.zeros(L_total)
+        self.param_correlation = None
+        self.param_correlation_indices = None
+        
+        try:
+            free_indices = getattr(self, 'free_indices', None)
+            if free_indices is None or len(free_indices) == 0:
+                # Fallback de seguridad (p.ej. tras cargar un proyecto antiguo)
+                num_kin_fallback = self._get_num_kinetic_params()
+                is_kinetic_fb = np.zeros(L_total, dtype=bool)
+                is_kinetic_fb[:num_kin_fallback] = True
+                free_indices = np.where(is_kinetic_fb & ~self.is_fixed)[0]
+
+            J = self.fit_result.jac
+
+            if J is not None and J.size > 0 and len(free_indices) > 0:
+                U, s, Vh = np.linalg.svd(J, full_matrices=False)
+                tol = np.finfo(float).eps * max(J.shape) * s[0]
+                s_inv = np.zeros_like(s)
+                s_inv[s > tol] = 1.0 / s[s > tol]
+                cov_free = (Vh.T * (s_inv**2)) @ Vh
+
+                s_nonzero = s[s > tol]
+                if len(s_nonzero) > 0:
+                    self.fit_condition_number = s_nonzero[0] / s_nonzero[-1]
+                else:
+                    self.fit_condition_number = np.inf
+                 
+                # Dirección menos determinada del espacio de parámetros (la "sloppy direction")
+                if len(s_nonzero) > 0:
+                    idx_sloppiest = np.argmin(s)
+                    direction = Vh[idx_sloppiest, :]  # combinación lineal de los parámetros libres
+                    self.sloppiest_direction = dict(zip(free_indices, direction))
+
+                # Nº de parámetros lineales (amplitudes) realmente ajustados por VarPro,
+                # para restarlos también de los grados de libertad.
+                if self.model_type == "Custom GUI Model":
+                    num_species = len(self.current_custom_model.states)
+                elif "Oscillation" in self.model_type:
+                    num_species = numExp + 1
+                else:
+                    num_species = numExp
+                num_linear_params = numWL * num_species
+
+                total_fitted_params = len(free_indices) + num_linear_params
+                dof = resid.size - total_fitted_params
+
+                if dof > 0:
+                    mse = np.sum(resid**2) / dof
+                    cov_free_scaled = cov_free * mse
+                    var_free = np.diagonal(cov_free_scaled)
+                    err_free = np.sqrt(np.maximum(var_free, 0))
+                    self.ci[free_indices] = err_free
+
+                    # Matriz de correlación entre parámetros cinéticos: valores
+                    # cercanos a ±1 indican que dos parámetros no son identificables
+                    # de forma independiente (p.ej. dos taus muy próximos entre sí).
+                    d = np.sqrt(np.maximum(np.diagonal(cov_free_scaled), 1e-300))
+                    self.param_correlation = cov_free_scaled / np.outer(d, d)
+                    self.param_correlation_indices = free_indices
                     
+                # --- Diagnóstico de identificabilidad: número de condición y dirección menos determinada ---
+                s_nonzero = s[s > tol]
+                if len(s_nonzero) > 0:
+                    self.fit_condition_number = float(s_nonzero[0] / s_nonzero[-1])
+                    idx_sloppiest = int(np.argmin(s))
+                    direction = Vh[idx_sloppiest, :]
+                    contributions = sorted(
+                        zip(free_indices.tolist(), direction.tolist()),
+                        key=lambda t: abs(t[1]), reverse=True
+                    )
+                    # Solo guardamos contribuciones no despreciables a esa dirección
+                    self.sloppiest_direction = [(idx, w) for idx, w in contributions if abs(w) > 0.15]
+                else:
+                    self.fit_condition_number = np.inf
+                    self.sloppiest_direction = []
+                    
+        except Exception as e:
+            print(f"CRITICAL ERROR calculating covariance: {e}")
+            
+        idx_tau = 2
+        
+        if self.model_type == "Custom GUI Model":
+            num_kinetic_params = len(self.current_custom_model.param_labels)
+            end_tau = idx_tau + num_kinetic_params
+        else:
+            end_tau = idx_tau + numExp
+            
+        if end_tau <= len(x):
+            self.extracted_taus = x[idx_tau : end_tau]
+            self.extracted_errtaus = self.ci[idx_tau : end_tau]
+        else:
+            self.extracted_taus = np.zeros(end_tau - idx_tau)
+            self.extracted_errtaus = np.zeros(end_tau - idx_tau)
 
-
-            fitres = F_mat.T 
-            resid = self.data_c - fitres
-            self.fit_fitres = fitres
-            self.fit_resid = resid
-    
-            L_total = len(x)
-            self.ci = np.zeros(L_total)
-            self.param_correlation = None
-            self.param_correlation_indices = None
-            
-            try:
-                free_indices = getattr(self, 'free_indices', None)
-                if free_indices is None or len(free_indices) == 0:
-                    # Fallback de seguridad (p.ej. tras cargar un proyecto antiguo)
-                    num_kin_fallback = self._get_num_kinetic_params()
-                    is_kinetic_fb = np.zeros(L_total, dtype=bool)
-                    is_kinetic_fb[:num_kin_fallback] = True
-                    free_indices = np.where(is_kinetic_fb & ~self.is_fixed)[0]
-            
-                J = self.fit_result.jac
-            
-                if J is not None and J.size > 0 and len(free_indices) > 0:
-                    U, s, Vh = np.linalg.svd(J, full_matrices=False)
-                    tol = np.finfo(float).eps * max(J.shape) * s[0]
-                    s_inv = np.zeros_like(s)
-                    s_inv[s > tol] = 1.0 / s[s > tol]
-                    cov_free = (Vh.T * (s_inv**2)) @ Vh
-            
-                    s_nonzero = s[s > tol]
-                    if len(s_nonzero) > 0:
-                        self.fit_condition_number = s_nonzero[0] / s_nonzero[-1]
-                    else:
-                        self.fit_condition_number = np.inf
-                     
-                    # Dirección menos determinada del espacio de parámetros (la "sloppy direction")
-                    if len(s_nonzero) > 0:
-                        idx_sloppiest = np.argmin(s)
-                        direction = Vh[idx_sloppiest, :]  # combinación lineal de los parámetros libres
-                        self.sloppiest_direction = dict(zip(free_indices, direction))
-    
-                    # Nº de parámetros lineales (amplitudes) realmente ajustados por VarPro,
-                    # para restarlos también de los grados de libertad.
-                    if self.model_type == "Custom GUI Model":
-                        num_species = len(self.current_custom_model.states)
-                    elif "Oscillation" in self.model_type:
-                        num_species = numExp + 1
-                    else:
-                        num_species = numExp
-                    num_linear_params = numWL * num_species
-            
-                    total_fitted_params = len(free_indices) + num_linear_params
-                    dof = resid.size - total_fitted_params
-            
-                    if dof > 0:
-                        mse = np.sum(resid**2) / dof
-                        cov_free_scaled = cov_free * mse
-                        var_free = np.diagonal(cov_free_scaled)
-                        err_free = np.sqrt(np.maximum(var_free, 0))
-                        self.ci[free_indices] = err_free
-            
-                        # Matriz de correlación entre parámetros cinéticos: valores
-                        # cercanos a ±1 indican que dos parámetros no son identificables
-                        # de forma independiente (p.ej. dos taus muy próximos entre sí).
-                        d = np.sqrt(np.maximum(np.diagonal(cov_free_scaled), 1e-300))
-                        self.param_correlation = cov_free_scaled / np.outer(d, d)
-                        self.param_correlation_indices = free_indices
-                        
-                    # --- Diagnóstico de identificabilidad: número de condición y dirección menos determinada ---
-                    s_nonzero = s[s > tol]
-                    if len(s_nonzero) > 0:
-                        self.fit_condition_number = float(s_nonzero[0] / s_nonzero[-1])
-                        idx_sloppiest = int(np.argmin(s))
-                        direction = Vh[idx_sloppiest, :]
-                        contributions = sorted(
-                            zip(free_indices.tolist(), direction.tolist()),
-                            key=lambda t: abs(t[1]), reverse=True
-                        )
-                        # Solo guardamos contribuciones no despreciables a esa dirección
-                        self.sloppiest_direction = [(idx, w) for idx, w in contributions if abs(w) > 0.15]
-                    else:
-                        self.fit_condition_number = np.inf
-                        self.sloppiest_direction = []
-                        
-            except Exception as e:
-                print(f"CRITICAL ERROR calculating covariance: {e}")
-                
-            idx_tau = 2
-            
-            if self.model_type == "Custom GUI Model":
-                num_kinetic_params = len(self.current_custom_model.param_labels)
-                end_tau = idx_tau + num_kinetic_params
+        self.As = np.zeros((numExp, numWL))
+        self.errAs = np.zeros((numExp, numWL))
+        self.Bs = None      
+        self.errBs = None
+        
+        try:
+            # --- NUEVO: Cálculo de errores LINEALES (amplitudes) adaptado a listas ---
+            if isinstance(C, list):
+                err_S_T_list = []
+                for i in range(numWL):
+                    pseudo_inv_C = np.linalg.pinv(C[i].T @ C[i])
+                    diag_cov = np.diagonal(pseudo_inv_C)
+                    dof_linear = resid.shape[1] - C[i].shape[1]
+                    mse = np.sum(resid[i, :]**2) / dof_linear if dof_linear > 0 else 0
+                    err_S_T_list.append(np.sqrt(np.maximum(diag_cov * mse, 0)))
+                err_S_T_full = np.column_stack(err_S_T_list)
             else:
-                end_tau = idx_tau + numExp
-                
-            if end_tau <= len(x):
-                self.extracted_taus = x[idx_tau : end_tau]
-                self.extracted_errtaus = self.ci[idx_tau : end_tau]
-            else:
-                self.extracted_taus = np.zeros(end_tau - idx_tau)
-                self.extracted_errtaus = np.zeros(end_tau - idx_tau)
-    
-            self.As = np.zeros((numExp, numWL))
-            self.errAs = np.zeros((numExp, numWL))
-            self.Bs = None      
-            self.errBs = None
-            
-            try:
-            
                 pseudo_inv_C = np.linalg.pinv(C.T @ C)
                 diag_cov = np.diagonal(pseudo_inv_C) 
                 dof_linear = resid.shape[1] - C.shape[1]
                 mse_per_wl = np.sum(resid**2, axis=1) / dof_linear if dof_linear > 0 else np.zeros(numWL)
                 err_S_T_full = np.sqrt(np.maximum(np.outer(diag_cov, mse_per_wl), 0))
-                
-                if "Oscillation" in self.model_type:
-                    self.As = self.S_T_full[:numExp, :]
-                    self.errAs = err_S_T_full[:numExp, :]
-                    self.Bs = self.S_T_full[numExp, :]
-                    self.errBs = err_S_T_full[numExp, :]
-                else:
-                    self.As = self.S_T_full[:numExp, :]
-                    self.errAs = err_S_T_full[:numExp, :]
+            
+            if "Oscillation" in self.model_type:
+                self.As = self.S_T_full[:numExp, :]
+                self.errAs = err_S_T_full[:numExp, :]
+                self.Bs = self.S_T_full[numExp, :]
+                self.errBs = err_S_T_full[numExp, :]
+            else:
+                self.As = self.S_T_full[:numExp, :]
+                self.errAs = err_S_T_full[:numExp, :]
 
-            except Exception as e:
-                pass
-    
-            outdir = self.current_batch_outdir if getattr(self, 'is_batch_running', False) else os.path.join(self.base_dir, "fit")
-            os.makedirs(outdir, exist_ok=True)
-            
-            # --- GUARDADO DE ARCHIVOS DE RESULTADOS ---
-            
-            # 1. Paquete completo de resultados (consumido por _on_active_dataset_changed)
-            results_dict = {
-                'fitres': self.fit_fitres,
-                'resid': self.fit_resid,
-                'taus': self.extracted_taus,
-                'err_taus': self.extracted_errtaus,
-                'As': self.As,
-                'errAs': self.errAs,
-                'x': x,
-                'ci': self.ci,
-                'model_type': self.model_type,
-                'numExp': numExp,
-            }
-            np.save(os.path.join(outdir, "GFitResults.npy"), results_dict)
-            
-            # ---  GUARDAR LAS 3 MATRICES 2D (Experimental, Fit y Residuales) ---
-            # Crear la cabecera común con los delays (TD)
-            header_line = "Wavelength\t" + "\t".join([f"{t:.6g}" for t in TD])
-            
-            # 1. Matriz Experimental (Pre-procesada)
-            exp_export = np.column_stack((WL, self.data_c))
-            np.savetxt(os.path.join(outdir, "Corrected_data.txt"), exp_export, fmt='%.6e', delimiter='\t', header=header_line, comments='')
+        except Exception as e:
+            pass
 
-            # 2. Matriz del Fit
-            fit_export = np.column_stack((WL, self.fit_fitres))
-            np.savetxt(os.path.join(outdir, "Fitted_data.txt"), fit_export, fmt='%.6e', delimiter='\t', header=header_line, comments='')
+        outdir = self.current_batch_outdir if getattr(self, 'is_batch_running', False) else os.path.join(self.base_dir, "fit")
+        os.makedirs(outdir, exist_ok=True)
+        
+        # --- GUARDADO DE ARCHIVOS DE RESULTADOS ---
+        
+        # 1. Paquete completo de resultados (consumido por _on_active_dataset_changed)
+        results_dict = {
+            'fitres': self.fit_fitres,
+            'resid': self.fit_resid,
+            'taus': self.extracted_taus,
+            'err_taus': self.extracted_errtaus,
+            'As': self.As,
+            'errAs': self.errAs,
+            'x': x,
+            'ci': self.ci,
+            'model_type': self.model_type,
+            'numExp': numExp,
+        }
+        np.save(os.path.join(outdir, "GFitResults.npy"), results_dict)
+        
+        # ---  GUARDAR LAS 3 MATRICES 2D (Experimental, Fit y Residuales) ---
+        # Crear la cabecera común con los delays (TD)
+        header_line = "Wavelength\t" + "\t".join([f"{t:.6g}" for t in TD])
+        
+        # 1. Matriz Experimental (Pre-procesada)
+        exp_export = np.column_stack((WL, self.data_c))
+        np.savetxt(os.path.join(outdir, "Corrected_data.txt"), exp_export, fmt='%.6e', delimiter='\t', header=header_line, comments='')
+
+        # 2. Matriz del Fit
+        fit_export = np.column_stack((WL, self.fit_fitres))
+        np.savetxt(os.path.join(outdir, "Fitted_data.txt"), fit_export, fmt='%.6e', delimiter='\t', header=header_line, comments='')
+        
+        # 3. Matriz de Residuales
+        resid_export = np.column_stack((WL, self.fit_resid))
+        np.savetxt(os.path.join(outdir, "Residuals.txt"), resid_export, fmt='%.6e', delimiter='\t', header=header_line, comments='')
+        # ---------------------------------------------------------------------------
+        
+        # 2. Ejes
+        np.savetxt(os.path.join(outdir, "WL.txt"), WL, fmt='%.6f', header='Wavelength (nm)', comments='')
+        np.savetxt(os.path.join(outdir, "TD.txt"), TD, fmt='%.6f', header='Delay (ps)', comments='')
+        
+        # 3. Amplitudes (DAS/SAS) en el formato que espera SASDASPlotterWindow:
+        #    líneas "# tauN=valor+-error" seguidas de columnas Wavelength / AN / AN_err
+        tau_comment_lines = []
+        
+        # --- NUEVO: GUARDAR SIEMPRE LA IRF (w) Y EL t0 EN LA CABECERA ---
+        w_val = x[0]
+        w_err = self.ci[0] if (self.ci is not None and len(self.ci) > 0) else 0.0
+        t0_val = x[1]
+        t0_err = self.ci[1] if (self.ci is not None and len(self.ci) > 1) else 0.0
+        tau_comment_lines.append(f"irf_fwhm={w_val:.6g}+-{w_err:.6g}")
+        tau_comment_lines.append(f"t0={t0_val:.6g}+-{t0_err:.6g}")
+        # ----------------------------------------------------------------
+        
+        for n in range(numExp):
+            tau_val = self.extracted_taus[n] if n < len(self.extracted_taus) else np.nan
+            err_val = self.extracted_errtaus[n] if (self.extracted_errtaus is not None and n < len(self.extracted_errtaus)) else 0.0
+            tau_comment_lines.append(f"tau{n+1}={tau_val:.6g}+-{err_val:.6g}")
+        
+        # --- PARÁMETROS DEL ARTEFACTO COHERENTE EN LA CABECERA ---
+        if use_art:
+            tau_comment_lines.append(f"coherent_artifact=True")
+            tau_comment_lines.append(f"artifact_mode={art_mode}")
+        
+        col_headers = ["Wavelength"]
+        
+        amp_columns = [WL]
+        for n in range(numExp):
+            col_headers.append(f"A{n+1}")
+            col_headers.append(f"A{n+1}_err")
+            amp_columns.append(self.As[n])
+            amp_columns.append(self.errAs[n])
+        
+        # --- NUEVO: COLUMNAS DE ESPECTROS DEL ARTEFACTO COHERENTE ---
+        if use_art:
+            if art_mode == 'raman':
+                num_art_bases = 1
+                art_labels = ["Raman_phi0"]
+            elif art_mode == 'xpm':
+                num_art_bases = 2
+                art_labels = ["XPM_phi1", "XPM_phi2"]
+            else:  # 'both'
+                num_art_bases = 3
+                art_labels = ["Raman_phi0", "XPM_phi1", "XPM_phi2"]
             
-            # 3. Matriz de Residuales
-            resid_export = np.column_stack((WL, self.fit_resid))
-            np.savetxt(os.path.join(outdir, "Residuals.txt"), resid_export, fmt='%.6e', delimiter='\t', header=header_line, comments='')
-            # ---------------------------------------------------------------------------
+            # Extraemos las amplitudes del final de S_T_full
+            art_amps = S_T_full[-num_art_bases:, :]
             
-            # 2. Ejes
-            np.savetxt(os.path.join(outdir, "WL.txt"), WL, fmt='%.6f', header='Wavelength (nm)', comments='')
-            np.savetxt(os.path.join(outdir, "TD.txt"), TD, fmt='%.6f', header='Delay (ps)', comments='')
+            if 'err_S_T_full' in locals() and err_S_T_full is not None:
+                art_errs = err_S_T_full[-num_art_bases:, :]
+            else:
+                art_errs = np.zeros_like(art_amps)
             
-            # 3. Amplitudes (DAS/SAS) en el formato que espera SASDASPlotterWindow:
-            #    líneas "# tauN=valor+-error" seguidas de columnas Wavelength / AN / AN_err
-            tau_comment_lines = []
+            for i, label in enumerate(art_labels):
+                col_headers.append(label)
+                col_headers.append(f"{label}_err")
+                amp_columns.append(art_amps[i])
+                amp_columns.append(art_errs[i])
+        
+        amp_matrix = np.column_stack(amp_columns)
+        
+        with open(os.path.join(outdir, "Amplitudes.txt"), 'w') as f:
+            for line in tau_comment_lines:
+                f.write(f"# {line}\n")
+            f.write("\t".join(col_headers) + "\n")
+            np.savetxt(f, amp_matrix, fmt='%.6e', delimiter='\t')
+       
+        self._update_fit_canvas()
+        self._update_resid_canvas()
+        self.btn_show_das.setEnabled(True)
+        self.btn_export_pdf.setEnabled(True)
+        
+        if not getattr(self, 'is_batch_running', False):
+            self.show_results_summary()
+            rmsd = np.sqrt(np.mean(resid**2))
+            self.show_toast(f"Fit completed successfully (RMSD: {rmsd:.2e})")
             
-            # --- NUEVO: GUARDAR SIEMPRE LA IRF (w) Y EL t0 EN LA CABECERA ---
-            w_val = x[0]
-            w_err = self.ci[0] if (self.ci is not None and len(self.ci) > 0) else 0.0
-            t0_val = x[1]
-            t0_err = self.ci[1] if (self.ci is not None and len(self.ci) > 1) else 0.0
-            tau_comment_lines.append(f"irf_fwhm={w_val:.6g}+-{w_err:.6g}")
-            tau_comment_lines.append(f"t0={t0_val:.6g}+-{t0_err:.6g}")
-            # ----------------------------------------------------------------
-            
-            for n in range(numExp):
-                tau_val = self.extracted_taus[n] if n < len(self.extracted_taus) else np.nan
-                err_val = self.extracted_errtaus[n] if (self.extracted_errtaus is not None and n < len(self.extracted_errtaus)) else 0.0
-                tau_comment_lines.append(f"tau{n+1}={tau_val:.6g}+-{err_val:.6g}")
-            
-            # --- PARÁMETROS DEL ARTEFACTO COHERENTE EN LA CABECERA ---
-            if use_art:
-                tau_comment_lines.append(f"coherent_artifact=True")
-                tau_comment_lines.append(f"artifact_mode={art_mode}")
-            
-            col_headers = ["Wavelength"]
-            
-            amp_columns = [WL]
-            for n in range(numExp):
-                col_headers.append(f"A{n+1}")
-                col_headers.append(f"A{n+1}_err")
-                amp_columns.append(self.As[n])
-                amp_columns.append(self.errAs[n])
-            
-            # --- NUEVO: COLUMNAS DE ESPECTROS DEL ARTEFACTO COHERENTE ---
-            if use_art:
-                if art_mode == 'raman':
-                    num_art_bases = 1
-                    art_labels = ["Raman_phi0"]
-                elif art_mode == 'xpm':
-                    num_art_bases = 2
-                    art_labels = ["XPM_phi1", "XPM_phi2"]
-                else:  # 'both'
-                    num_art_bases = 3
-                    art_labels = ["Raman_phi0", "XPM_phi1", "XPM_phi2"]
-                
-                # Extraemos las amplitudes del final de S_T_full
-                art_amps = S_T_full[-num_art_bases:, :]
-                
-                if 'err_S_T_full' in locals() and err_S_T_full is not None:
-                    art_errs = err_S_T_full[-num_art_bases:, :]
-                else:
-                    art_errs = np.zeros_like(art_amps)
-                
-                for i, label in enumerate(art_labels):
-                    col_headers.append(label)
-                    col_headers.append(f"{label}_err")
-                    amp_columns.append(art_amps[i])
-                    amp_columns.append(art_errs[i])
-            
-            amp_matrix = np.column_stack(amp_columns)
-            
-            with open(os.path.join(outdir, "Amplitudes.txt"), 'w') as f:
-                for line in tau_comment_lines:
-                    f.write(f"# {line}\n")
-                f.write("\t".join(col_headers) + "\n")
-                np.savetxt(f, amp_matrix, fmt='%.6e', delimiter='\t')
-           
-            self._update_fit_canvas()
-            self._update_resid_canvas()
-            self.btn_show_das.setEnabled(True)
-            self.btn_export_pdf.setEnabled(True)
-            
-            if not getattr(self, 'is_batch_running', False):
-                self.show_results_summary()
-                rmsd = np.sqrt(np.mean(resid**2))
-                self.show_toast(f"Fit completed successfully (RMSD: {rmsd:.2e})")
                 
     def compute_profile_likelihood(self, param_idx, n_steps=15, confidence=0.95, span_sigma=6, progress_callback=None):
         """
@@ -4486,29 +4487,76 @@ class GlobalFitPanel(QDialog):
         model_str = self.combo_model.currentText()
         is_oscillation = "Oscillation" in model_str
         is_custom = "Custom GUI Model" in model_str
-    
+
+        # 1. Calculamos la longitud de la "base" cinética según el modelo elegido
+        base_kin = 2 + self.numExp
+        if is_oscillation:
+            base_kin = 2 + self.numExp + 3
+        elif is_custom and getattr(self, 'current_custom_model', None) is not None:
+            base_kin = 2 + len(self.current_custom_model.param_labels)
+
+        # 2. NUEVO: Si la opción de t0 por píxel está activa y el índice cae en esa zona
+        if getattr(self, 'chk_indep_t0', None) and self.chk_indep_t0.isChecked():
+            if base_kin <= i < self._get_num_kinetic_params():
+                idx_wl = i - base_kin
+                wl_val = self._wl_proc[idx_wl] if hasattr(self, '_wl_proc') else idx_wl
+                return f"t0 @ {wl_val:.1f} nm"
+
+        # 3. Lógica ORIGINAL intacta para los parámetros base
         if is_custom and getattr(self, 'current_custom_model', None) is not None:
             model = self.current_custom_model
             if i == 0: return "w (IRF Width)"
-            if i == 1: return "t0 (Time Zero)"
+            if i == 1: return "t0 (Global Time Zero)"
             idx_param = i - 2
             if 0 <= idx_param < len(model.param_labels):
                 return model.param_labels[idx_param]
             return f"param[{i}]"
-    
+
         if is_oscillation:
             if i == 0: return "w (IRF Width)"
-            if i == 1: return "t0 (Time Zero)"
+            if i == 1: return "t0 (Global Time Zero)"
             if i < 2 + self.numExp: return f"τ{i-1}"
             if i == 2 + self.numExp: return "α (Damping)"
             if i == 2 + self.numExp + 1: return "ω (Frequency)"
             if i == 2 + self.numExp + 2: return "φ (Phase)"
             return f"param[{i}]"
-    
+
         if i == 0: return "w (IRF Width)"
-        if i == 1: return "t0 (Time Zero)"
+        if i == 1: return "t0 (Global Time Zero)"
         if i < 2 + self.numExp: return f"τ{i-1}"
+        
         return f"param[{i}]"
+    
+    def _build_C_matrix(self, x_target, TD, WL):
+        """Genera la matriz C global o una lista de matrices C_i si el t0 es local."""
+        use_art = getattr(self, 'chk_artifact', None) and self.chk_artifact.isChecked()
+        art_mode = self._get_artifact_mode()
+        is_indep_t0 = getattr(self, 'chk_indep_t0', None) and self.chk_indep_t0.isChecked()
+
+        def build_single(x_loc):
+            if self.model_type == "Sequential":
+                return fit.get_concentration_matrix_sequential(x_loc, TD, self.numExp, use_art, art_mode)
+            elif self.model_type == 'Damped Oscillation':
+                return fit.get_concentration_matrix_oscillation(x_loc, TD, self.numExp, use_art, art_mode)
+            elif self.model_type == "Custom GUI Model":
+                model = self.current_custom_model
+                w, t0_val = x_loc[0], x_loc[1]
+                num_params_cineticos = len(model.param_labels)
+                x_nl_params = x_loc[2:2+num_params_cineticos]
+                return model.get_concentration_matrix(x_nl_params, TD, w, t0_val, use_art, art_mode)
+            else: 
+                return fit.get_concentration_matrix_global(x_loc, TD, self.numExp, use_art, art_mode)
+
+        if is_indep_t0:
+            base_kin = self._get_num_kinetic_params() - len(WL)
+            C_list = []
+            for i in range(len(WL)):
+                x_local = x_target.copy()
+                x_local[1] = x_target[base_kin + i] # Intercambiar t0 global por el t0 local
+                C_list.append(build_single(x_local))
+            return C_list
+        else:
+            return build_single(x_target)
     
     def show_results_summary(self):
             """Displays a popup window detailing the final global parameters derived from the fit."""
