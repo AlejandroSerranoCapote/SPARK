@@ -27,6 +27,11 @@
 
 **Requirements:** Python 3.8 or later.
 
+### Easy installation via .bat files
+
+1º Install.bat
+2º Run.bat
+
 ```bash
 # 1. Clone the repository
 git clone https://github.com/AlejandroSerranoCapote/SPARK.git
