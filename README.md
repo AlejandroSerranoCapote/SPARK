@@ -32,6 +32,7 @@
 1º Install.bat
 2º Run.bat
 
+### Installation via cmd
 ```bash
 # 1. Clone the repository
 git clone https://github.com/AlejandroSerranoCapote/SPARK.git
