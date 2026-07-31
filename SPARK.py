@@ -37,7 +37,6 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QFont, QPalette, QColor, QDesktopServices, QIcon
 from PyQt5.QtCore import Qt, QTimer, QUrl, QSize,QEvent
-from PyQt5.QtWidgets import QFrame
 import fit
 from core_analysis import fit_t0, load_data, eV_a_nm
 from GlobalFitClassGui import GlobalFitPanel
