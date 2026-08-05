@@ -166,6 +166,7 @@ DARK_THEME_STYLE = """
     }
 """
 
+
 class ToastNotification(QWidget):
     """
     Notificación flotante no bloqueante con animación Fade-In y Fade-Out.
@@ -830,8 +831,11 @@ class PaperPlotterWindow(QDialog):
         self.initUI()
         
     def initUI(self):
-        layout = QVBoxLayout(self)
-        top_layout = QHBoxLayout()
+        # 1. El layout principal ahora es HORIZONTAL (Lado a lado)
+        main_layout = QHBoxLayout(self)
+        
+        # 2. Panel Izquierdo (Vertical): Zona de Drop + Controles
+        left_layout = QVBoxLayout()
         
         self.drop_label = QLabel("DRAG & DROP YOUR KINETIC .TXT FILES HERE")
         self.drop_label.setAlignment(Qt.AlignCenter)
@@ -848,7 +852,7 @@ class PaperPlotterWindow(QDialog):
                 font-size: 11pt;
             }
         """)
-        top_layout.addWidget(self.drop_label, 3)
+        left_layout.addWidget(self.drop_label)
         
         ctrl_group = QGroupBox("Plots")
         ctrl_form = QFormLayout(ctrl_group)
@@ -901,7 +905,20 @@ class PaperPlotterWindow(QDialog):
         self.chk_no_negatives.setChecked(True) 
         self.chk_no_negatives.stateChanged.connect(self.replotted)
         ctrl_form.addRow(self.chk_no_negatives)
+       
+        self.line_title = QLineEdit("")
+        self.line_title.setPlaceholderText("Optional Plot Title")
+        self.line_title.textChanged.connect(self.replotted)
+        ctrl_form.addRow("Plot Title:", self.line_title)
 
+        self.line_xlabel = QLineEdit("Time Delay / ps")
+        self.line_xlabel.textChanged.connect(self.replotted)
+        ctrl_form.addRow("X-Axis Label:", self.line_xlabel)
+
+        self.line_ylabel = QLineEdit("ΔA (a.u.)")
+        self.line_ylabel.textChanged.connect(self.replotted)
+        ctrl_form.addRow("Y-Axis Label:", self.line_ylabel)
+       
         self.chk_auto_y = QCheckBox("Automatic Y-Axis (ΔA)")
         self.chk_auto_y.setChecked(True)
         self.chk_auto_y.stateChanged.connect(self.toggle_y_inputs)
@@ -929,23 +946,69 @@ class PaperPlotterWindow(QDialog):
         self.btn_clear.clicked.connect(self.clear_data)
         ctrl_form.addRow(self.btn_clear)
         
+        
+        self.table_labels = QTableWidget(0, 2)
+        self.table_labels.setHorizontalHeaderLabels(["Original", "Custom Legend"])
+        self.table_labels.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table_labels.setMinimumHeight(120)
+        
+        self.table_labels.itemChanged.connect(self.replotted)
+        ctrl_form.addRow(self.table_labels)
+        
+        
         self.btn_export_fig = QPushButton("Export Figure (600 DPI)")
         self.btn_export_fig.clicked.connect(self.export_figure)
         self.btn_export_fig.setStyleSheet("background-color: #4A8C4A; color: white; font-weight: bold;")
         ctrl_form.addRow(self.btn_export_fig)
         
-        top_layout.addWidget(ctrl_group, 2)
-        layout.addLayout(top_layout)
+        # Añadimos el grupo de controles al panel izquierdo
+        left_layout.addWidget(ctrl_group)
+        
+        # Opcional: empuja los controles hacia arriba si sobra espacio
+        left_layout.addStretch()
+
+        # 3. Panel Derecho (Vertical): Barra de herramientas + Lienzo del gráfico
+        right_layout = QVBoxLayout()
         
         self.fig = Figure(figsize=(self.spin_width.value(), self.spin_height.value()), dpi=100)
         self.canvas = FigureCanvas(self.fig)
         self.toolbar = NavigationToolbar(self.canvas, self)
         
-        layout.addWidget(self.toolbar)
-        layout.addWidget(self.canvas)
+        right_layout.addWidget(self.toolbar)
+        right_layout.addWidget(self.canvas)
+        
+        # 4. Ensamblamos todo en la ventana principal
+        # El parámetro 'stretch' define la proporción de espacio (ej. 1 tercio izq, 2 tercios der)
+        main_layout.addLayout(left_layout, stretch=1)
+        main_layout.addLayout(right_layout, stretch=2)
         
         self.ax = self.fig.add_subplot(111)
         self.setup_paper_style()
+        
+    def update_labels_table(self):
+        """Llena la tabla con los archivos cargados para permitir editar sus leyendas."""
+        self.table_labels.blockSignals(True) # Evita redibujos infinitos mientras se construye
+        self.table_labels.setRowCount(len(self.file_data))
+        
+        for i, data in enumerate(self.file_data):
+            wl = data['wl']
+            default_label = f"{wl} nm" if wl > 0 else data['filename']
+            
+            # Mantenemos el texto modificado si el usuario ya lo había cambiado
+            existing_item = self.table_labels.item(i, 1)
+            current_custom = existing_item.text() if existing_item else default_label
+            
+            # Columna 1: Original (Solo lectura)
+            item_orig = QTableWidgetItem(default_label)
+            item_orig.setFlags(item_orig.flags() & ~Qt.ItemIsEditable) 
+            
+            # Columna 2: Editable
+            item_custom = QTableWidgetItem(current_custom)
+            
+            self.table_labels.setItem(i, 0, item_orig)
+            self.table_labels.setItem(i, 1, item_custom)
+            
+        self.table_labels.blockSignals(False)
         
     def toggle_y_inputs(self):
         """Activa o desactiva las cajas de Crop de la señal según el modo elegido."""
@@ -965,8 +1028,19 @@ class PaperPlotterWindow(QDialog):
         self.ax.tick_params(direction='in', top=True, right=True, labelsize=11, width=1.2, length=6)
         for spine in self.ax.spines.values():
             spine.set_linewidth(1.2)
-        self.ax.set_xlabel("Time Delay / ps", fontsize=13, fontname="Arial", fontweight='bold')
-        self.ax.set_ylabel("ΔA (a.u.)", fontsize=13, fontname="Arial", fontweight='bold')
+            
+        # Intentamos obtener los textos de la GUI. Si aún no se han creado, usamos defaults.
+        x_label = self.line_xlabel.text() if hasattr(self, 'line_xlabel') else "Time Delay / ps"
+        y_label = self.line_ylabel.text() if hasattr(self, 'line_ylabel') else "ΔA (a.u.)"
+        title = self.line_title.text() if hasattr(self, 'line_title') else ""
+
+        self.ax.set_xlabel(x_label, fontsize=13, fontname="Arial", fontweight='bold')
+        self.ax.set_ylabel(y_label, fontsize=13, fontname="Arial", fontweight='bold')
+        
+        # Solo dibujamos el título si el usuario escribió algo
+        if title.strip():
+            self.ax.set_title(title, fontsize=14, fontname="Arial", fontweight='bold')
+            
         self.ax.grid(False)
         
     def dragEnterEvent(self, event):
@@ -982,6 +1056,7 @@ class PaperPlotterWindow(QDialog):
                     files_added += 1
         if files_added > 0:
             self.file_data.sort(key=lambda x: x['wl'])
+            self.update_labels_table()  # <-- AÑADE ESTA LÍNEA AQUÍ
             self.replotted()
             
     def parse_trace_file(self, path):
@@ -1070,9 +1145,14 @@ class PaperPlotterWindow(QDialog):
             y_exp = data['exp']
             y_fit = data['fit']
             wl = data['wl']
-            
-            label_text = f"{wl} nm" if wl > 0 else data['filename']
-            
+               
+            # Leemos lo que el usuario haya escrito en la segunda columna
+            item = self.table_labels.item(i, 1)
+            if item and item.text().strip():
+                label_text = item.text()
+            else:
+                label_text = f"{wl} nm" if wl > 0 else data['filename']
+                     
             max_td_found = max(max_td_found, np.max(td))
             min_td_found = min(min_td_found, np.min(td))
             
@@ -1107,6 +1187,7 @@ class PaperPlotterWindow(QDialog):
         
     def clear_data(self):
         self.file_data = []
+        self.table_labels.setRowCount(0)
         self.replotted()
         
     def export_figure(self):
@@ -5349,8 +5430,11 @@ class SASDASPlotterWindow(QDialog):
         self.initUI()
         
     def initUI(self):
-        layout = QVBoxLayout(self)
-        top_layout = QHBoxLayout()
+        # 1. Layout principal HORIZONTAL
+        main_layout = QHBoxLayout(self)
+        
+        # 2. Panel Izquierdo
+        left_layout = QVBoxLayout()
         
         self.drop_label = QLabel("DRAG & DROP YOUR SPECTRA FILES (DAS / SAS)")
         self.drop_label.setAlignment(Qt.AlignCenter)
@@ -5367,25 +5451,20 @@ class SASDASPlotterWindow(QDialog):
                 font-size: 11pt;
             }
         """)
-        top_layout.addWidget(self.drop_label, 3)
+        left_layout.addWidget(self.drop_label)
         
         ctrl_group = QGroupBox("Plots")
         ctrl_form = QFormLayout(ctrl_group)
         
-        # Selector de paletas cromáticas
+        # Controles originales de colores y tamaño
         self.combo_palette = QComboBox()
         self.combo_palette.addItems([
-            "Scientific (Nature)", 
-            "Qualitative (Tab10)", 
-            "Vibrant (Set1)", 
-            "Sequential (Viridis)", 
-            "Sequential (Plasma)",
-            "Cool / Warm"
+            "Scientific (Nature)", "Qualitative (Tab10)", "Vibrant (Set1)", 
+            "Sequential (Viridis)", "Sequential (Plasma)", "Cool / Warm"
         ])
         self.combo_palette.currentIndexChanged.connect(self.replotted)
         ctrl_form.addRow("Colour palette:", self.combo_palette)
         
-        # Controles de puntos y errorbars
         self.spin_ms = QSpinBox()
         self.spin_ms.setRange(0, 15)
         self.spin_ms.setValue(4)  
@@ -5401,81 +5480,90 @@ class SASDASPlotterWindow(QDialog):
         self.spin_cap.valueChanged.connect(self.replotted)
         ctrl_form.addRow("capsize width:", self.spin_cap)
         
-        # Dimensiones de la figura en pulgadas
         self.spin_width = QDoubleSpinBox()
-        self.spin_width.setRange(3.0, 15.0)
-        self.spin_width.setValue(6.5)  
-        self.spin_width.setSingleStep(0.5)
+        self.spin_width.setRange(3.0, 15.0); self.spin_width.setValue(6.5); self.spin_width.setSingleStep(0.5)
         self.spin_width.setSuffix(" in (Width)")
         self.spin_width.valueChanged.connect(self.update_fig_size)
         ctrl_form.addRow("Figure width:", self.spin_width)
         
         self.spin_height = QDoubleSpinBox()
-        self.spin_height.setRange(2.0, 10.0)
-        self.spin_height.setValue(4.5)  
-        self.spin_height.setSingleStep(0.5)
+        self.spin_height.setRange(2.0, 10.0); self.spin_height.setValue(4.5); self.spin_height.setSingleStep(0.5)
         self.spin_height.setSuffix(" in (Height)")
         self.spin_height.valueChanged.connect(self.update_fig_size)
         ctrl_form.addRow("Figure height:", self.spin_height)
         
-        # Herramienta de Crop manual ejes X e Y
+        # --- NUEVO: Textos Personalizados ---
+        self.line_title = QLineEdit("")
+        self.line_title.setPlaceholderText("Optional Plot Title")
+        self.line_title.textChanged.connect(self.replotted)
+        ctrl_form.addRow("Plot Title:", self.line_title)
+
+        self.line_xlabel = QLineEdit("Wavelength / nm")
+        self.line_xlabel.textChanged.connect(self.replotted)
+        ctrl_form.addRow("X-Axis Label:", self.line_xlabel)
+
+        self.line_ylabel = QLineEdit("Amplitude / a.u.")
+        self.line_ylabel.textChanged.connect(self.replotted)
+        ctrl_form.addRow("Y-Axis Label:", self.line_ylabel)
+        # ------------------------------------
+        
         self.chk_auto_axes = QCheckBox("Auto limits axis")
         self.chk_auto_axes.setChecked(True)
         self.chk_auto_axes.stateChanged.connect(self.toggle_axes_inputs)
         ctrl_form.addRow(self.chk_auto_axes)
         
-        self.spin_xmin = QSpinBox()
-        self.spin_xmin.setRange(200, 1500)
-        self.spin_xmin.setValue(300)
-        self.spin_xmin.setSuffix(" nm (X Min)")
-        self.spin_xmin.setEnabled(False)
+        self.spin_xmin = QSpinBox(); self.spin_xmin.setRange(200, 1500); self.spin_xmin.setValue(300)
+        self.spin_xmin.setSuffix(" nm (X Min)"); self.spin_xmin.setEnabled(False)
         self.spin_xmin.valueChanged.connect(self.replotted)
         ctrl_form.addRow("Crop X Min:", self.spin_xmin)
         
-        self.spin_xmax = QSpinBox()
-        self.spin_xmax.setRange(200, 1500)
-        self.spin_xmax.setValue(800)
-        self.spin_xmax.setSuffix(" nm (X Max)")
-        self.spin_xmax.setEnabled(False)
+        self.spin_xmax = QSpinBox(); self.spin_xmax.setRange(200, 1500); self.spin_xmax.setValue(800)
+        self.spin_xmax.setSuffix(" nm (X Max)"); self.spin_xmax.setEnabled(False)
         self.spin_xmax.valueChanged.connect(self.replotted)
         ctrl_form.addRow("Crop X Max:", self.spin_xmax)
         
-        self.spin_ymin = QDoubleSpinBox()
-        self.spin_ymin.setRange(-10.0, 10.0)
-        self.spin_ymin.setValue(-0.10)
-        self.spin_ymin.setSingleStep(0.01)
-        self.spin_ymin.setDecimals(3)
-        self.spin_ymin.setEnabled(False)
+        self.spin_ymin = QDoubleSpinBox(); self.spin_ymin.setRange(-10.0, 10.0); self.spin_ymin.setValue(-0.10)
+        self.spin_ymin.setSingleStep(0.01); self.spin_ymin.setDecimals(3); self.spin_ymin.setEnabled(False)
         self.spin_ymin.valueChanged.connect(self.replotted)
         ctrl_form.addRow("Crop Y Min:", self.spin_ymin)
         
-        self.spin_ymax = QDoubleSpinBox()
-        self.spin_ymax.setRange(-10.0, 10.0)
-        self.spin_ymax.setValue(1.0)
-        self.spin_ymax.setSingleStep(0.05)
-        self.spin_ymax.setDecimals(3)
-        self.spin_ymax.setEnabled(False)
+        self.spin_ymax = QDoubleSpinBox(); self.spin_ymax.setRange(-10.0, 10.0); self.spin_ymax.setValue(1.0)
+        self.spin_ymax.setSingleStep(0.05); self.spin_ymax.setDecimals(3); self.spin_ymax.setEnabled(False)
         self.spin_ymax.valueChanged.connect(self.replotted)
         ctrl_form.addRow("Crop Y Max:", self.spin_ymax)
         
         self.btn_clear = QPushButton("Clean plot")
         self.btn_clear.clicked.connect(self.clear_data)
         ctrl_form.addRow(self.btn_clear)
+
+        # --- NUEVO: Tabla de Leyendas ---
+        self.table_labels = QTableWidget(0, 2)
+        self.table_labels.setHorizontalHeaderLabels(["Original", "Custom Legend"])
+        self.table_labels.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table_labels.setMinimumHeight(120)
+        self.table_labels.itemChanged.connect(self.replotted)
+        ctrl_form.addRow(self.table_labels)
+        # --------------------------------
         
         self.btn_export_fig = QPushButton("Export spectra (600 DPI)")
         self.btn_export_fig.clicked.connect(self.export_figure)
         self.btn_export_fig.setStyleSheet("background-color: #4A8C4A; color: white; font-weight: bold;")
         ctrl_form.addRow(self.btn_export_fig)
         
-        top_layout.addWidget(ctrl_group, 2)
-        layout.addLayout(top_layout)
+        left_layout.addWidget(ctrl_group)
+        left_layout.addStretch()
         
+        # 3. Panel Derecho (Gráfico)
+        right_layout = QVBoxLayout()
         self.fig = Figure(figsize=(self.spin_width.value(), self.spin_height.value()), dpi=100)
         self.canvas = FigureCanvas(self.fig)
         self.toolbar = NavigationToolbar(self.canvas, self)
         
-        layout.addWidget(self.toolbar)
-        layout.addWidget(self.canvas)
+        right_layout.addWidget(self.toolbar)
+        right_layout.addWidget(self.canvas)
+        
+        main_layout.addLayout(left_layout, stretch=1)
+        main_layout.addLayout(right_layout, stretch=2)
         
         self.ax = self.fig.add_subplot(111)
         self.setup_paper_style()
@@ -5497,10 +5585,40 @@ class SASDASPlotterWindow(QDialog):
         self.ax.tick_params(direction='in', top=True, right=True, labelsize=11, width=1.2, length=6)
         for spine in self.ax.spines.values():
             spine.set_linewidth(1.2)
-        self.ax.set_xlabel("Wavelength / nm", fontsize=13, fontname="Arial", fontweight='bold')
-        self.ax.set_ylabel("Amplitude / a.u.", fontsize=13, fontname="Arial", fontweight='bold')
+            
+        x_label = self.line_xlabel.text() if hasattr(self, 'line_xlabel') else "Wavelength / nm"
+        y_label = self.line_ylabel.text() if hasattr(self, 'line_ylabel') else "Amplitude / a.u."
+        title = self.line_title.text() if hasattr(self, 'line_title') else ""
+
+        self.ax.set_xlabel(x_label, fontsize=13, fontname="Arial", fontweight='bold')
+        self.ax.set_ylabel(y_label, fontsize=13, fontname="Arial", fontweight='bold')
+        
+        if title.strip():
+            self.ax.set_title(title, fontsize=14, fontname="Arial", fontweight='bold')
+            
         self.ax.axhline(0, color='#7F7F7F', linestyle='--', linewidth=1.0, zorder=1)
         self.ax.grid(False)
+    
+    def update_labels_table(self):
+        """Llena la tabla con los espectros cargados para permitir editar sus leyendas."""
+        self.table_labels.blockSignals(True)
+        self.table_labels.setRowCount(len(self.spectra_data))
+        
+        for i, data in enumerate(self.spectra_data):
+            default_label = data['label']
+            
+            existing_item = self.table_labels.item(i, 1)
+            current_custom = existing_item.text() if existing_item else default_label
+            
+            item_orig = QTableWidgetItem(default_label)
+            item_orig.setFlags(item_orig.flags() & ~Qt.ItemIsEditable) 
+            
+            item_custom = QTableWidgetItem(current_custom)
+            
+            self.table_labels.setItem(i, 0, item_orig)
+            self.table_labels.setItem(i, 1, item_custom)
+            
+        self.table_labels.blockSignals(False)
         
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -5514,6 +5632,7 @@ class SASDASPlotterWindow(QDialog):
                 if self.parse_spectra_file(file_path):
                     files_added += 1
         if files_added > 0:
+            self.update_labels_table()
             self.replotted()
             
     def parse_spectra_file(self, path):
@@ -5634,9 +5753,15 @@ class SASDASPlotterWindow(QDialog):
             if err is None:
                 err = np.zeros_like(amp)
             
+            item = self.table_labels.item(i, 1)
+            if item and item.text().strip():
+                label_text = item.text()
+            else:
+                label_text = data['label']
+                
             self.ax.errorbar(wl, amp, yerr=err, fmt='-', marker=marker_style, color=color, 
                              linewidth=2.0, markersize=ms, capsize=cap, elinewidth=1.2, 
-                             markeredgewidth=1.0, alpha=0.9, label=data['label'], zorder=4)
+                             markeredgewidth=1.0, alpha=0.9, label=label_text, zorder=4) 
             
         if not self.chk_auto_axes.isChecked():
             self.ax.set_xlim(self.spin_xmin.value(), self.spin_xmax.value())
@@ -5648,6 +5773,8 @@ class SASDASPlotterWindow(QDialog):
         
     def clear_data(self):
         self.spectra_data = []
+        if hasattr(self, 'table_labels'):
+            self.table_labels.setRowCount(0) 
         self.replotted()
         
     def export_figure(self):
