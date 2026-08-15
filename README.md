@@ -162,7 +162,7 @@ When you execute a Global Fit or export plots, SPARK generates a structured resu
 ## Modules
 
 ### FLUPS Analyzer
-> **Input Requirement:** A single data matrix (the experimental measurement).
+> **Input Requirement:** A single data matrix (the experimental measurement). It also admits 3 `.txt` files (TimeDelay.txt, Wavelength.txt & 2D_matrix.txt
 
 Loads raw FLUPS data matrices and provides a fully interactive 2D map with real-time spectral and kinetic cross-sections under the cursor. Chirp ($t_0$) correction is available both manually (user-selected points fitted to a polynomial or non-linear dispersion model) and automatically via a global-intensity-thresholding algorithm that identifies the half-rise point of the signal at each wavelength. Corrected data is exported as `.npy` for direct loading into the Global Fit Panel.
 
