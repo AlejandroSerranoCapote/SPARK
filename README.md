@@ -98,9 +98,15 @@ For automatic, seamless importing, your text/CSV files should ideally be structu
 *   **Row 0 (Header):** Time delays (ps).
 *   **Column 0 (Index):** Wavelengths (nm).
 *   **Remaining Cells:** The transient absorption or emission data ($\Delta A$).
-
-$$\text{Data} = \begin{bmatrix} \lambda \setminus t & -1.00 & -0.50 & 0.00 & 0.50 & 1.00 \\ 400 & 0.002 & 0.005 & 0.010 & 0.004 & 0.001 \\ 410 & 0.001 & 0.004 & 0.008 & 0.003 & 0.000 \end{bmatrix}$$
-
+   
+```math
+\text{ΔA(λ,t)} =
+\begin{bmatrix}
+λ \setminus t & -1.00 & -0.50 & 0.00 & 0.50 & 1.00 \\
+400 & 0.002 & 0.005 & 0.010 & 0.004 & 0.001 \\
+410 & 0.001 & 0.004 & 0.008 & 0.003 & 0.000
+\end{bmatrix}
+```
 *(Note: The top-left cell can be empty, `0`, or text).*
 
 #### The Smart Fallback GUI
