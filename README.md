@@ -60,6 +60,7 @@ The `.exe` will appear in the `dist/` folder with no Python installation require
 ## Table of Contents
 
 - [Overview](#overview)
+- [Supported Data Formats & Generated Files](#supported-data-formats--generated-files)
 - [Supported Techniques](#supported-techniques)
 - [Modules](#modules)
 - [Mathematical Background](#mathematical-background)
@@ -84,6 +85,61 @@ The core fitting engine implements a **true VarPro algorithm**: at each step of 
 
 ---
 
+## Supported Data Formats & Generated Files
+
+This section describes the file formats SPARK can import, how the Universal Importer handles them, and the directory structure of the exported results.
+
+### Input Data & The Universal Importer
+
+SPARK features a highly flexible **Universal Data Importer** (`import_wizard`) designed to read exported data from almost any spectrometer. It accepts the following file extensions: **`.csv`, `.txt`, `.dat`, and `.npy`**.
+
+#### The Standard Matrix Layout
+For automatic, seamless importing, your text/CSV files should ideally be structured as a 2D matrix where:
+*   **Row 0 (Header):** Time delays (ps).
+*   **Column 0 (Index):** Wavelengths (nm).
+*   **Remaining Cells:** The transient absorption or emission data ($\Delta A$).
+
+$$\text{Data} = \begin{bmatrix} \lambda \setminus t & -1.00 & -0.50 & 0.00 & 0.50 & 1.00 \\ 400 & 0.002 & 0.005 & 0.010 & 0.004 & 0.001 \\ 410 & 0.001 & 0.004 & 0.008 & 0.003 & 0.000 \end{bmatrix}$$
+
+*(Note: The top-left cell can be empty, `0`, or text).*
+
+#### The Smart Fallback GUI
+If your file contains complex headers, metadata footers (e.g., date, sample name, pump energy), or uses non-standard delimiters, **the software will not crash**. 
+Instead, it will automatically launch the **Manual Data Importer**. This Origin-style spreadsheet interface allows you to visually map your data:
+1.  Click **"Auto-Detect Standard Layout"** to automatically isolate the numeric matrix from any surrounding text.
+2.  Alternatively, manually highlight columns/rows and assign them to the Wavelength (WL), Time Delay (TD), and Data axes.
+3.  A smart validation system ensures dimensions match before allowing the import.
+
+*For advanced users: SPARK also natively reads NumPy dictionaries (`.npy`) containing the exact keys `data_c`, `WL`, and `TD`.*
+
+---
+
+### Output Data & Generated Files
+
+When you execute a Global Fit or export plots, SPARK generates a structured results folder (e.g., `<dataset_name>_Results/` or `Batch_Results/`). The updated mathematical engine generates the following files:
+
+```text
+<dataset_name>_Results/
+│
+├── fit/ (or Batch_Results/<name>/)
+│   ├── GFitResults.npy          # Complete Python dictionary with all fit matrices and errors
+│   ├── Corrected_data.txt       # Pre-processed experimental 2D matrix
+│   ├── Fitted_data.txt          # Global fit 2D matrix
+│   ├── Residuals.txt            # Fit residuals 2D matrix
+│   ├── Amplitudes.txt           # SAS/DAS amplitudes and errors (Includes kinetic params in the header)
+│   ├── WL.txt                   # Cropped/Binned wavelengths axis
+│   ├── TD.txt                   # Cropped/Binned time delays axis
+│   └── <dataset>_FitReport.pdf  # Comprehensive, publication-quality vector PDF report
+│
+├── Plots/
+│   ├── DAS.png                  # Decay/Species Associated Spectra plot (and Oscillation if applicable)
+│   ├── Residuals_Map.png        # 2D Residuals heatmap
+│   ├── Trace_<WL>nm.png         # Exported kinetic trace plot at a specific wavelength
+│   └── Trace_<WL>nm.txt         # Exported kinetic trace data (TD vs Exp vs Fit)
+│
+├── Spectrum_<delay>ps.txt       # (Optional) Exported spectral cross-section at a specific time delay
+└── project_name.proj            # (Optional) SPARK workspace save file (UI states, guesses, and matrices)
+```
 ## Supported Techniques
 
 | Technique | Description |
