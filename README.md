@@ -29,8 +29,10 @@
 
 ### Easy installation via .bat files
 
-1º Install.bat
-2º Run.bat
+For a quick, one-click setup, just run the provided batch files from the main folder:
+
+1. Double-click <kbd>Install.bat</kbd> to automatically set up the environment and dependencies.
+2. Double-click <kbd>Run.bat</kbd> to launch the application.
 
 ### Installation via cmd
 ```bash
