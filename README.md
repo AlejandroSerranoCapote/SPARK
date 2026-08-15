@@ -162,10 +162,14 @@ When you execute a Global Fit or export plots, SPARK generates a structured resu
 ## Modules
 
 ### FLUPS Analyzer
+> **Input Requirement:** A single data matrix (the experimental measurement).
+
 Loads raw FLUPS data matrices and provides a fully interactive 2D map with real-time spectral and kinetic cross-sections under the cursor. Chirp ($t_0$) correction is available both manually (user-selected points fitted to a polynomial or non-linear dispersion model) and automatically via a global-intensity-thresholding algorithm that identifies the half-rise point of the signal at each wavelength. Corrected data is exported as `.npy` for direct loading into the Global Fit Panel.
 
 ### TAS Analyzer
-Extends the FLUPS workflow for Transient Absorption data. The solvent background is subtracted in real time as the user adjusts the amplitude and temporal shift sliders, with the subtraction computed via bilinear interpolation onto the measurement grid at each slider event. Pump scatter removal, SymLog/Linear axis switching, and discrete-level map rendering are all interactive. A blitting-based rendering engine ensures smooth cursor tracking even on large datasets.
+> **Input Requirement:** Two data matrices (the experimental sample measurement and the solvent background).
+
+Extends the FLUPS workflow for Transient Absorption data. The solvent background is subtracted in real time as the user adjusts the amplitude and temporal shift sliders, with the subtraction computed via bilinear interpolation onto the measurement grid at each slider event. Pump scatter removal, SymLog/Linear axis switching, etc. A blitting-based rendering engine ensures smooth cursor tracking even on large datasets.
 
 ### Global Fit Panel
 The main analysis engine. Supports simultaneous loading of multiple datasets, pre-processing (baseline subtraction, spectral and temporal cropping, wavelength exclusion zones, binning, normalization), SVD rank diagnosis, and global fitting. After optimization, results include DAS/SAS spectra with error bars, kinetic trace exploration, 2D residual maps, and a full parameter identifiability report. Batch fitting over all loaded datasets is available with a single button, producing individual result folders per dataset.
