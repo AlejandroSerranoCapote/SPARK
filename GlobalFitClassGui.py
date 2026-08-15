@@ -3,6 +3,8 @@ import os
 import re
 import datetime
 
+from import_wizard import load_universal_file
+
 # 2. PyQt5 (Interfaz Gráfica)
 from PyQt5.QtCore import (
     Qt, QTimer, QPropertyAnimation, QThread, pyqtSignal, QEasingCurve,
@@ -1915,7 +1917,7 @@ class GlobalFitPanel(QDialog):
         v_load.addWidget(self.label_status)
         
         h_btns = QHBoxLayout()
-        self.btn_load = QPushButton("Load .npy")
+        self.btn_load = QPushButton("Load file")
         self.btn_load.setAutoDefault(False)
         self.btn_load.clicked.connect(self.load_data) 
         h_btns.addWidget(self.btn_load)
@@ -1926,7 +1928,7 @@ class GlobalFitPanel(QDialog):
         h_btns.addWidget(self.btn_parent)
         v_load.addLayout(h_btns)
         
-        # --- NUEVO: Fila compartida para comparaciones ---
+        # ---  Fila compartida para comparaciones ---
         h_compare = QHBoxLayout()
         
         self.btn_compare = QPushButton("Compare Kinetics")
@@ -1961,6 +1963,8 @@ class GlobalFitPanel(QDialog):
 
         # --- Group 2: Pre-processing ---
         gb_prep = QGroupBox("Pre-processing")
+        gb_prep.setEnabled(False)
+        self.gb_prep = gb_prep
         form_prep = QFormLayout()
 
         self.spin_bl = QSpinBox()
@@ -2025,6 +2029,8 @@ class GlobalFitPanel(QDialog):
 
         # --- Group 3: Visualization  ---
         gb_vis = QGroupBox("Visualization")
+        gb_vis.setEnabled(False)
+        self.gb_vis = gb_vis
         form_vis = QFormLayout()
         self.btn_plot_3d = QPushButton("3D Map")
         self.btn_plot_3d.clicked.connect(self.plot_3d_surface)
@@ -2055,6 +2061,8 @@ class GlobalFitPanel(QDialog):
 
         # --- Group 3b: Export Spectrum at Delay ---
         gb_export = QGroupBox("Export Spectrum at Delay")
+        gb_export.setEnabled(False)
+        self.gb_export = gb_export
         form_export = QFormLayout()
 
         h_export = QHBoxLayout()
@@ -2885,6 +2893,12 @@ class GlobalFitPanel(QDialog):
     def _update_ui_limits_from_data(self):
         """Updates the internal SpinBox ranges based on the currently loaded data limits."""
         
+        # --- Habilitar los paneles ahora que hay datos ---
+        if hasattr(self, 'gb_prep'): self.gb_prep.setEnabled(True)
+        if hasattr(self, 'gb_vis'): self.gb_vis.setEnabled(True)
+        if hasattr(self, 'gb_export'): self.gb_export.setEnabled(True)
+        # --------------------------------------------------------
+        
         # Update wavelength limits if data exists
         if self.WL is not None and len(self.WL) > 0:
             self.spin_wl_min.setValue(np.min(self.WL))
@@ -2922,14 +2936,14 @@ class GlobalFitPanel(QDialog):
             self.btn_run.setEnabled(True)
             self.btn_batch.setEnabled(True)
             self.label_status.setText(f"Loaded from Parent: {len(self.WL)} WL, {len(self.TD)} TD")
-
+            
     def load_data(self):
-        """Carga múltiples archivos .npy para compararlos."""
-  
+        """Carga múltiples archivos usando el lector universal para compararlos."""
+        # 1. Ampliamos el filtro para aceptar más formatos
         file_paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select .npy files", "", "Numpy Files (*.npy)"
+            self, "Select data files", "", 
+            "All Data Files (*.npy *.txt *.csv *.dat);;Numpy Files (*.npy);;Text Files (*.txt *.csv *.dat);;All Files (*.*)"
         )
-        
         
         if not file_paths:
             return
@@ -2938,25 +2952,23 @@ class GlobalFitPanel(QDialog):
             
         for path in file_paths:
             try:
-                # Cargamos el archivo .npy directamente usando numpy
-                # allow_pickle=True y .item() extraen el diccionario directamente
-                loaded_dict = np.load(path, allow_pickle=True).item()
+                # 2. USAMOS EL NUEVO LECTOR UNIVERSAL
+                data_c, WL, TD = load_universal_file(path, parent_window=self)
                 
-                # Extraemos las matrices usando las claves exactas de tu script original
-                raw_data = loaded_dict['data_c']
-                WL = loaded_dict['WL']
-                TD = loaded_dict['TD']
-                
-                self.data_raw_list.append(raw_data.copy())
-                self.data_c_list.append(raw_data.copy()) # Por defecto igual a crudo
-                self.TD_list.append(TD)
-                self.WL_list.append(WL)
-                self.filenames.append(os.path.basename(path))
-                
+                # 3. Verificamos si se cargó correctamente (si el usuario canceló, devuelve Nones)
+                if data_c is not None:
+                    self.data_raw_list.append(data_c.copy())
+                    self.data_c_list.append(data_c.copy()) # Por defecto igual a crudo
+                    self.TD_list.append(TD)
+                    self.WL_list.append(WL)
+                    self.filenames.append(os.path.basename(path))
+                else:
+                    print(f"Canceled import for: {os.path.basename(path)}")
+                    
             except Exception as e:
                 QMessageBox.critical(self, f"Error loading {os.path.basename(path)}", str(e))
                 
-        # Sincronizamos la UI usando el primer archivo cargado como base
+        # 4. Sincronizamos la UI usando el primer archivo cargado con éxito como base
         if self.WL_list:
             self.WL = self.WL_list[0]
             self.TD = self.TD_list[0]
@@ -2967,7 +2979,7 @@ class GlobalFitPanel(QDialog):
             self.btn_run.setEnabled(True)
             self.btn_batch.setEnabled(True)
             
-            # --- NUEVO: Poblar el combo box con los archivos cargados ---
+            # Poblar el combo box con los archivos cargados
             self.combo_active_dataset.blockSignals(True) # Bloqueamos eventos temporales
             self.combo_active_dataset.clear()
             self.combo_active_dataset.addItems(self.filenames)
@@ -2975,6 +2987,7 @@ class GlobalFitPanel(QDialog):
             self.combo_active_dataset.blockSignals(False)
             
             self.label_status.setText(f"Loaded {len(self.filenames)} Files")
+            
     def _on_active_dataset_changed(self, index):
         """Cambia dinámicamente el dataset visible y carga sus ajustes si existen."""
         if index < 0 or index >= len(self.data_c_list):
@@ -3106,6 +3119,13 @@ class GlobalFitPanel(QDialog):
             # Bloquear botones para evitar crasheos
             self.btn_run.setEnabled(False)
             self.btn_batch.setEnabled(False)
+            
+            # --- Desactivar los paneles porque ya no hay datos ---
+            if hasattr(self, 'gb_prep'): self.gb_prep.setEnabled(False)
+            if hasattr(self, 'gb_vis'): self.gb_vis.setEnabled(False)
+            if hasattr(self, 'gb_export'): self.gb_export.setEnabled(False)
+            # ------------------------------------------------------------
+            
             
 
     def _clear_fit_plots(self):

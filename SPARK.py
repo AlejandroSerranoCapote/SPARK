@@ -984,9 +984,9 @@ class FLUPSAnalyzer(QMainWindow):
             #                 NORMALIZATION DATA IN FLUPS
             # =============================================================================
 
-            #max_val = np.nanmax(np.abs(data))
-            #if max_val != 0:
-            #    data = data / max_val
+            # max_val = np.nanmax(np.abs(data))
+            # if max_val != 0:
+            #     data = data / max_val
     
     
             self.WL, self.TD, self.data = wl, td, data
