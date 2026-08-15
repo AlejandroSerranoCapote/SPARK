@@ -29,11 +29,11 @@
 
 ### Easy installation via .bat files
 
-For a quick, one-click setup, just run the provided batch files from the main folder:
+The fastest way to get started on Windows is using the included batch scripts:
 
-1. Double-click <kbd>Install.bat</kbd> to automatically set up the environment and dependencies.
-2. Double-click <kbd>Run.bat</kbd> to launch the application.
-
+* **Step 1:** Execute `Install.bat`
+* **Step 2:** Execute `Run.bat`
+  
 ### Installation via cmd
 ```bash
 # 1. Clone the repository
