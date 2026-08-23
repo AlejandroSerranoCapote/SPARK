@@ -1,40 +1,42 @@
-.. Ultrafast Spectroscopy Analyzer documentation master file
+.. SPARK documentation master file
 
-Welcome to Ultrafast Spectroscopy Analyzer's documentation!
-===========================================================
+Welcome to SPARK: Spectroscopy Pump-Probe Analysis and Research Kit
+===================================================================
 
 .. image:: _static/icon.png
+   :alt: SPARK Logo
    :align: center
-   :alt: Ultrafast Spectroscopy Analyzer Logo
-   :width: 200px
+   :width: 150px
 
-**Ultrafast Spectroscopy Analyzer** es una herramienta avanzada basada en Python para el análisis de datos de espectroscopía ultrarrápida, optimizada para técnicas como **TAS** (Transient Absorption Spectroscopy) y **FLUPS** (Fluorescence Up-Conversion Spectroscopy).
+**SPARK** is an open-source Python suite designed for the processing and analysis of ultrafast spectroscopy data. It provides a comprehensive environment for handling transient absorption (**TAS**) and fluorescence up-conversion (**FLUPS**) measurements, featuring an integrated graphical user interface and a robust computational backend.
 
-Ofrece características potentes como corrección de *chirp*, ajuste global (*global fitting*) usando múltiples modelos matemáticos y herramientas de visualización científica.
+While it supports standard pre-processing tasks such as chirp correction and map generation, SPARK's primary analytical focus is its **Global Fitting Engine**. This module implements Variable Projection (VarPro) algorithms to handle parallel and sequential kinetic models, as well as user-defined systems through custom rate matrices.
+
+Core Capabilities
+-----------------
+
+* **Global Fitting (VarPro):** Separation of non-linear parameters (lifetimes, IRF width, etc.) from linear amplitude spectra using Trust Region Reflective optimization.
+* **Kinetic Models:** Support for Decay Associated Spectra (DAS), Species Associated Spectra (SAS), damped oscillations, and custom K-matrix models.
+* **Statistical Diagnostics:** Confidence interval estimation via profile likelihood mapping and condition number evaluation.
+* **Data Pre-processing:** Automated and manual data importers, baseline correction, and coherent artifact handling (Raman and XPM bases).
+* **Publication Plotting:** Integrated tools for customizing and exporting high-resolution vector figures.
+
+Getting Started
+---------------
 
 .. toctree::
    :maxdepth: 2
-   :caption: Guía de Inicio:
+   :caption: User Guide:
 
    installation
    usage
+   tutorials
+
+Technical Reference
+-------------------
 
 .. toctree::
    :maxdepth: 2
-   :caption: Referencia Técnica (API):
+   :caption: API Documentation:
 
-   api
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Desarrollo:
-
-   contributing
-   license
-
-Índices y tablas
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   api/index
