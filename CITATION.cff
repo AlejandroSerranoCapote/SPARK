@@ -4,7 +4,7 @@ authors:
 - family-names: "Serrano Capote"
   given-names: "Alejandro"
   orcid: "https://orcid.org/0009-0008-1746-9004"
-title: "Ultrafast Spectroscopy Analyzer"
+title: "SPARK"
 version: 1.0.0
 date-released: 2024-05-20
-url: "https://github.com/AlejandroSerranoCapote/Ultrafast-Spectroscopy-Analyzer-FLUP-TAS-"
+url: "https://github.com/AlejandroSerranoCapote/SPARK"
