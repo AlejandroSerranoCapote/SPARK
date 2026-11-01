@@ -1,65 +1,78 @@
+# Configuration file for the Sphinx documentation builder.
+#
+# This file only contains a selection of the most common options. For a full
+# list see the documentation:
+# https://www.sphinx-doc.org/en/master/usage/configuration.html
+
 import os
 import sys
-# Esto le dice a Sphinx que busque el código de tu app en la carpeta principal
 sys.path.insert(0, os.path.abspath('..'))
 
-# --- Información del proyecto ---
-project = 'Ultrafast Spectroscopy Analyzer'
-copyright = '2024, Alejandro Serrano Capote'
+# -- Project information -----------------------------------------------------
+
+project = 'SPARK'
+copyright = '2026, Alejandro Serrano Capote'
 author = 'Alejandro Serrano Capote'
-# Puedes poner la versión actual de tu software aquí
-release = '0.1.0'
+version = '2.0.0'
+release = '2.0.0'
 
-# --- Dependencias simuladas para Autodoc ---
-# Esto evita que Sphinx falle al no encontrar estas librerías pesadas en el servidor
-autodoc_mock_imports = [
-    'numpy',
-    'scipy',
-    'matplotlib',
-    'PyQt5', 
-    'PyQt6',
-    'pyqtgraph',
-    'pandas',
-    'lmfit',
-    'mpl_toolkits'
-]
+# -- General configuration ---------------------------------------------------
 
-# --- Configuración General ---
 extensions = [
-    'sphinx.ext.autodoc',      # Extrae documentación de los docstrings
-    'sphinx.ext.viewcode',     # Añade enlaces al código fuente
-    'sphinx.ext.napoleon',     # Soporta estilos de comentarios Google/NumPy
-    'sphinx.ext.autosummary',  # Genera resúmenes de API automáticamente
-    'sphinx_copybutton',       # Añade un botón de "copiar" a los bloques de código
+    'sphinx.ext.autodoc',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.viewcode',
+    'sphinx.ext.mathjax',
+    'sphinx_copybutton',
+    'myst_parser',
 ]
 
-# Configuración de autodoc
-autodoc_default_options = {
-    'members': True,
-    'member-order': 'bysource',
-    'special-members': '__init__',
-    'undoc-members': True,
-    'exclude-members': '__weakref__'
-}
-autosummary_generate = True # Generar resúmenes automáticamente
-
+# Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
+
+# List of patterns, relative to source directory, that match files and
+# directories to ignore when looking for source files.
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
-language = 'es' # Idioma de la interfaz de Sphinx
 
-# --- Configuración del Tema Visual ---
+# The suffix(es) of source filenames.
+source_suffix = {
+    '.rst': 'restructuredtext',
+    '.md': 'markdown',
+}
+
+# Master document
+master_doc = 'index'
+
+# -- Options for HTML output -------------------------------------------------
+
 html_theme = 'sphinx_rtd_theme'
-
-# ¡AQUÍ ESTÁ TU LOGO Y FAVICON!
-# Asegúrate de haber subido los archivos a docs/_static/
-html_logo = '_static/icon.png'    # Logo principal en la barra lateral
-html_favicon = '_static/icon.ico' # Icono pequeño de la pestaña
-
-# Ruta para archivos estáticos (como css, js, imágenes)
 html_static_path = ['_static']
 
-# Opciones adicionales del tema (opcional)
 html_theme_options = {
-    'logo_only': False,       # Si es True, solo muestra el logo, no el título
-    'display_version': True,   # Muestra la versión debajo del logo
+    'logo_only': False,
+    'display_version': True,
+    'prev_next_buttons_location': 'bottom',
+    'style_external_links': False,
+    'vcs_pageview_mode': '',
+    'style_nav_header_background': '#1B2A4A',
+    # Toc options
+    'collapse_navigation': False,
+    'sticky_navigation': True,
+    'navigation_depth': 4,
+    'includehidden': True,
+    'titles_only': False
 }
+
+# MathJax configuration for LaTeX equations
+mathjax3_config = {
+    'tex': {
+        'inlineMath': [['$', '$'], ['\\(', '\\)']],
+        'displayMath': [['$$', '$$'], ['\\[', '\\]']],
+    }
+}
+
+# Napoleon settings for Google / NumPy docstrings
+napoleon_google_docstring = True
+napoleon_numpy_docstring = True
+napoleon_include_init_with_doc = True
+napoleon_include_private_with_doc = False
