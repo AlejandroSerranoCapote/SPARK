@@ -1,6 +1,6 @@
 @echo off
 echo ==========================================
-echo Instalando dependencias de SPARK (Global)...
+echo Installing SPARK dependencies ...
 echo ==========================================
 
 :: Comprueba si Python esta instalado
