@@ -7,7 +7,7 @@
 [![PyQt5](https://img.shields.io/badge/GUI-PyQt5-41CD52?logo=qt&logoColor=white)](https://pypi.org/project/PyQt5/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20|%20Linux-lightgrey)](#)
 [![Docs](https://img.shields.io/badge/Docs-ReadTheDocs-blue)](https://ultrafast-spectroscopy-analyzer.readthedocs.io/en/latest/index.html)
-
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23866066.svg)](https://doi.org/10.5281/zenodo.23866066)
 # Spectroscopy Pump-probe Analysis and Research Kit (SPARK)
 
 <img width="2049" height="1000" alt="CabeceraGithub" src="https://github.com/user-attachments/assets/56e8a8fb-b4f4-4760-9299-17787bd8baf3" />
