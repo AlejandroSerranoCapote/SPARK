@@ -441,23 +441,6 @@ For bug reports or feature requests, please open a [GitHub Issue](https://github
 
 ---
 
-## Citation
-
-If you use this software in published work, please cite it as:
-
-```bibtex
-@software{SerranoCapote_SPARK_2025,
-  author  = {Serrano Capote, Alejandro},
-  title   = {{SPARK}},
-  year    = {2025},
-  version = {1.4},
-  url     = {https://github.com/AlejandroSerranoCapote/SPARK},
-  license = {GPL-3.0}
-}
-```
-
----
-
 ## License
 
 This project is licensed under the **GNU General Public License v3.0**.  
