@@ -27,6 +27,16 @@ extensions = [
     'myst_parser',
 ]
 
+# Mock GUI imports so Read the Docs builds without needing X11/Qt libraries
+autodoc_mock_imports = [
+    'PyQt5',
+    'PyQt5.QtWidgets',
+    'PyQt5.QtCore',
+    'PyQt5.QtGui',
+    'PyQt5.sip',
+    'sip',
+]
+
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
