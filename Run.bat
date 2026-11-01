@@ -1,5 +1,5 @@
 @echo off
-echo Iniciando SPARK...
+echo Starting SPARK...
 
 :: Ejecuta el script principal
 python SPARK.py
