@@ -2,6 +2,6 @@
 echo Starting SPARK...
 
 :: Ejecuta el script principal
-python spark\main.py
+python -m spark.main
 
 pause
