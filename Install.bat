@@ -6,21 +6,21 @@ echo ==========================================
 :: Comprueba si Python esta instalado
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Python no esta instalado o no esta en el PATH.
-    echo Por favor, instala Python e intentalo de nuevo.
+    echo [ERROR] Python is not installed or is not in the PATH.
+    echo Please, install Python and try again.
     pause
     exit /b
 )
 
 :: Instala las dependencias globalmente
-echo Actualizando pip...
+echo Updating pip...
 python -m pip install --upgrade pip
 
-echo Instalando librerias desde requirements.txt...
+echo Installing packages from requirements.txt...
 pip install -r requirements.txt
 
 echo.
 echo ==========================================
-echo Instalacion completada con exito!
+echo Installation completed!
 echo ==========================================
 pause
