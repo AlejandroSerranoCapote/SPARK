@@ -14,7 +14,7 @@
 
 
 
-**A comprehensive, open-source GUI suite for the processing and global target analysis of ultrafast spectroscopy data.**
+**A open-source software suite for the processing and global target analysis of ultrafast spectroscopy data.**
 
 
 <br/>
