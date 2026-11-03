@@ -61,7 +61,7 @@ If you wish to customize SPARK, contribute algorithms, or integrate it into auto
 
    .. code-block:: bash
 
-      git clone https://github.com/your-org/spark.git
+      git clone https://github.com/AlejandroSerranoCapote/SPARK.git
       cd spark
 
 2. **Create a Clean Virtual Environment**:
